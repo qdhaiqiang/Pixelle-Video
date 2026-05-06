@@ -1,0 +1,7 @@
+{
+  "source": "dashscope",
+  "model": "wan2.6-t2v",
+  "duration": 5,
+  "prompt_extend": true,
+  "watermark": false
+}

@@ -68,6 +68,16 @@ class VideoSubConfig(BaseModel):
     )
 
 
+class DashScopeConfig(BaseModel):
+    """Alibaba Cloud Bailian / DashScope media generation configuration"""
+    api_key: Optional[str] = Field(default=None, description="DashScope API Key")
+    region: str = Field(default="beijing", description="DashScope region: beijing, singapore, or us")
+    base_url: Optional[str] = Field(default=None, description="DashScope API base URL override")
+    workspace: Optional[str] = Field(default=None, description="Bailian workspace ID (optional)")
+    poll_interval: int = Field(default=10, ge=3, le=60, description="Polling interval in seconds")
+    timeout: int = Field(default=600, ge=60, le=3600, description="Task timeout in seconds")
+
+
 class ComfyUIConfig(BaseModel):
     """ComfyUI configuration (includes global settings and service-specific configs)"""
     comfyui_url: str = Field(default="http://127.0.0.1:8188", description="ComfyUI Server URL")
@@ -75,6 +85,7 @@ class ComfyUIConfig(BaseModel):
     runninghub_api_key: Optional[str] = Field(default=None, description="RunningHub API Key (optional)")
     runninghub_concurrent_limit: int = Field(default=1, ge=1, le=10, description="RunningHub concurrent execution limit (1-10)")
     runninghub_instance_type: Optional[str] = Field(default=None, description="RunningHub instance type (optional, set to 'plus' for 48GB VRAM)")
+    dashscope: DashScopeConfig = Field(default_factory=DashScopeConfig, description="DashScope/Bailian configuration")
     tts: TTSSubConfig = Field(default_factory=TTSSubConfig, description="TTS-specific configuration")
     image: ImageSubConfig = Field(default_factory=ImageSubConfig, description="Image-specific configuration")
     video: VideoSubConfig = Field(default_factory=VideoSubConfig, description="Video-specific configuration")
@@ -110,4 +121,3 @@ class PixelleVideoConfig(BaseModel):
     def to_dict(self) -> dict:
         """Convert to dictionary (for backward compatibility)"""
         return self.model_dump()
-

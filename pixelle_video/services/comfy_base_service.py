@@ -155,11 +155,14 @@ class ComfyBaseService:
             "key": f"{source}/{file_path.name}"
         }
         
-        # Check if it's a wrapper format (RunningHub, etc.)
+        # Check if it's a wrapper format (RunningHub, DashScope, etc.)
         if "source" in content:
             # Wrapper format: {"source": "runninghub", "workflow_id": "xxx", ...}
-            if "workflow_id" in content:
-                workflow_info["workflow_id"] = content["workflow_id"]
+            # Preserve provider-specific fields so services can dispatch without
+            # reparsing the workflow file.
+            for key, value in content.items():
+                if key not in workflow_info:
+                    workflow_info[key] = value
         
         return workflow_info
     
@@ -323,4 +326,3 @@ class ComfyBaseService:
             f"default={default!r} "
             f"available=[{available}]>"
         )
-

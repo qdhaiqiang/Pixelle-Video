@@ -23,6 +23,7 @@ from comfykit import ComfyKit
 from loguru import logger
 
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.dashscope_media import DashScopeMediaClient
 from pixelle_video.models.media import MediaResult
 
 
@@ -88,10 +89,14 @@ class MediaService(ComfyBaseService):
             # Get all JSON files for this source
             workflow_files = list_resource_files("workflows", source_name)
             
-            # Filter to only files matching image_ or video_ prefix
+            # Filter to only files matching image_, video_, or i2v_ prefix
             matching_files = [
                 f for f in workflow_files 
-                if (f.startswith("image_") or f.startswith("video_")) and f.endswith('.json')
+                if (
+                    f.startswith("image_")
+                    or f.startswith("video_")
+                    or f.startswith("i2v_")
+                ) and f.endswith('.json')
             ]
             
             for filename in matching_files:
@@ -225,6 +230,22 @@ class MediaService(ComfyBaseService):
         
         logger.debug(f"Workflow parameters: {workflow_params}")
         
+        if workflow_info["source"] == "dashscope":
+            client = DashScopeMediaClient(self.global_config)
+            handled_keys = {"prompt", "width", "height", "duration", "negative_prompt", "seed"}
+            dashscope_params = {k: v for k, v in workflow_params.items() if k not in handled_keys}
+            return await client.generate(
+                prompt=prompt,
+                workflow_info=workflow_info,
+                media_type=media_type,
+                width=width,
+                height=height,
+                duration=duration,
+                negative_prompt=negative_prompt,
+                seed=seed,
+                **dashscope_params,
+            )
+
         # 4. Execute workflow using shared ComfyKit instance from core
         try:
             # Get shared ComfyKit instance (lazy initialization + config hot-reload)

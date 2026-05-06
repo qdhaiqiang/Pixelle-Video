@@ -1,0 +1,7 @@
+{
+  "source": "dashscope",
+  "model": "wan2.2-t2i-flash",
+  "n": 1,
+  "prompt_extend": true,
+  "watermark": false
+}

@@ -63,18 +63,23 @@ class ImageToVideoPipelineUI(PipelineUI):
 
             def list_i2v_workflows():
                 result = []
-                for source in ("runninghub", "selfhost"):
+                for source in ("dashscope", "runninghub", "selfhost"):
                     dir_path = os.path.join("workflows", source)
                     if not os.path.isdir(dir_path):
                         continue
                     for fname in os.listdir(dir_path):
                         if fname.startswith("i2v_") and fname.endswith(".json"):
-                            display = f"{fname} - {'Runninghub' if source == 'runninghub' else 'Selfhost'}"
+                            source_display = {
+                                "dashscope": "Dashscope",
+                                "runninghub": "Runninghub",
+                                "selfhost": "Selfhost",
+                            }.get(source, source.title())
+                            display = f"{fname} - {source_display}"
                             result.append({
                                 "key": f"{source}/{fname}",
                                 "display_name": display
                             })
-                return result
+                return sorted(result, key=lambda item: item["key"])
 
             # File uploader for multiple files
             uploaded_files = st.file_uploader(
@@ -202,8 +207,6 @@ class ImageToVideoPipelineUI(PipelineUI):
                     async def generate_audio_visual_video():
                         task_dir, task_id = create_task_output_dir()
                         logger.info(f"[Initialization] Task Directory: {task_dir}")
-                        kit = await pixelle_video._get_or_create_comfykit()
-                        
                         import json
                         from pathlib import Path
 
@@ -220,28 +223,38 @@ class ImageToVideoPipelineUI(PipelineUI):
                         with open(workflow_path, 'r', encoding='utf-8') as f:
                             workflow_config = json.load(f)
 
-                        workflow_params = {
-                            "image": image_path,
-                            "prompt": prompt
-                        }
-
-                        if workflow_config.get("source") == "runninghub" and "workflow_id" in workflow_config:
-                            workflow_input = workflow_config["workflow_id"]
+                        if workflow_config.get("source") == "dashscope":
+                            media_result = await pixelle_video.media(
+                                prompt=prompt,
+                                workflow=workflow_key,
+                                media_type="video",
+                                image=image_path
+                            )
+                            generated_video_url = media_result.url
                         else:
-                            workflow_input = str(workflow_path)
+                            kit = await pixelle_video._get_or_create_comfykit()
+                            workflow_params = {
+                                "image": image_path,
+                                "prompt": prompt
+                            }
 
-                        video_result = await kit.execute(workflow_input, workflow_params)
+                            if workflow_config.get("source") == "runninghub" and "workflow_id" in workflow_config:
+                                workflow_input = workflow_config["workflow_id"]
+                            else:
+                                workflow_input = str(workflow_path)
 
-                        generated_video_url = None
-                        if hasattr(video_result, 'videos') and video_result.videos:
-                            generated_video_url = video_result.videos[0]
-                        elif hasattr(video_result, 'outputs') and video_result.outputs:
-                            for node_id, node_output in video_result.outputs.items():
-                                if isinstance(node_output, dict) and 'videos' in node_output:
-                                    videos = node_output['videos']
-                                    if videos and len(videos) > 0:
-                                        generated_video_url = videos[0]
-                                        break
+                            video_result = await kit.execute(workflow_input, workflow_params)
+
+                            generated_video_url = None
+                            if hasattr(video_result, 'videos') and video_result.videos:
+                                generated_video_url = video_result.videos[0]
+                            elif hasattr(video_result, 'outputs') and video_result.outputs:
+                                for node_id, node_output in video_result.outputs.items():
+                                    if isinstance(node_output, dict) and 'videos' in node_output:
+                                        videos = node_output['videos']
+                                        if videos and len(videos) > 0:
+                                            generated_video_url = videos[0]
+                                            break
 
                         if not generated_video_url:
                             raise Exception("The workflow did not return a video. Please check the workflow configuration.")

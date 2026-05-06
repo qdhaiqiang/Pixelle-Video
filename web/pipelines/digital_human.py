@@ -178,6 +178,7 @@ class DigitalHumanPipelineUI(PipelineUI):
                     # Warn for the first workflow as representative
                     # TODO: need to check if the workflow is valid
                     # check_and_warn_selfhost_workflow("selfhost/digital_image.json")
+            st.caption(tr("digital_human.workflow.provider_note"))
             return workflow_config
 
     def render_digital_human_mode(self, character_asset_paths: list) -> dict:
@@ -672,4 +673,3 @@ class DigitalHumanPipelineUI(PipelineUI):
 
 # Register self
 register_pipeline_ui(DigitalHumanPipelineUI)
-

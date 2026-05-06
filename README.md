@@ -247,9 +247,44 @@ uv run streamlit run web/app.py
 
 首次使用时，展开「⚙️ 系统配置」面板，填写：
 - **LLM 配置**: 选择 AI 模型（如通义千问、GPT 等）并填入 API Key
-- **图像配置**: 如需生成图片，配置 ComfyUI 地址或 RunningHub API Key
+- **图像/视频配置**: 如需生成图片或视频，配置 ComfyUI 地址、RunningHub API Key，或阿里云百炼 / 通义万相 DashScope API Key
 
 配置好后点击「保存配置」，就可以开始生成视频了！
+
+### 阿里云百炼 / 通义万相接入
+
+除 RunningHub 和本地 ComfyUI 外，项目也支持通过 DashScope HTTP API 调用阿里云百炼 / 通义万相媒体生成：
+
+1. 在「⚙️ 系统配置」中填写 **DashScope API Key**，并选择匹配的地域（北京 / 新加坡 / 弗吉尼亚）。
+2. 在「视觉设置」的工作流中选择：
+   - `image_wan2.2_t2i_flash.json - Dashscope`：通义万相文生图。
+   - `video_wan2.6_t2v.json - Dashscope`：通义万相文生视频。
+3. API Key、模型和 Endpoint 地域必须一致；生成结果链接通常 24 小时内有效，项目会在合成流程中及时下载到本地 `output/`。
+
+也可以直接在 `config.yaml` 中配置：
+
+```yaml
+comfyui:
+  dashscope:
+    api_key: "your-dashscope-api-key"
+    region: "beijing"  # beijing / singapore / us
+```
+
+### 第三方媒体生成 API 对比
+
+> 价格变化较快，下表用于选型参考；接入前请以各平台官方价格页为准。
+
+| 平台 | 收费模式 | 视频价格参考 | 图片价格参考 | 接入建议 |
+| --- | --- | --- | --- | --- |
+| 阿里云百炼 / 通义万相 Wan | 按成功输出的视频秒数 / 图片张数计费 | 常见 0.10-1.00 元/秒，万相 2.1/2.2 常用档约 0.24 或 0.70 元/秒 | 视模型按张计费，图像编辑示例 0.14 元/张 | 国内首选，异步任务模式与本项目最贴合 |
+| Runway API | Credit，$0.01/credit | Gen4 Turbo 约 $0.05/秒，Gen4.5 约 $0.12/秒，Veo 3.1 Fast 约 $0.10-$0.15/秒 | 常见 $0.02-$0.08/张 | 品质高，成本中高 |
+| OpenAI | 按秒 / 按图片计费 | Sora 2 约 $0.10/秒，Sora 2 Pro 约 $0.30-$0.50/秒 | GPT-image-1 约 $0.011/$0.042/$0.167 每张（低/中/高） | 接口规整，但批量短视频成本偏高 |
+| Google Vertex AI Veo | 按输出秒数计费 | Veo 3 Fast 约 $0.10-$0.15/秒，Veo 3 约 $0.20-$0.40/秒 | Imagen/Gemini 另计 | 适合企业云项目 |
+| Luma API | 按百万像素计费，并提供视频估算 | Ray Flash 2：720p 5 秒约 $0.24；Ray 2：720p 5 秒约 $0.71 | Photon Flash 1080p 约 ¢0.39/张 | 性价比较好，适合图生视频 |
+| fal.ai | 预付费 credits，按具体模型输出计费 | 每个模型不同，通常按秒或按条；可调用 Kling、Wan、Veo 等 | 按张或按 MP 计费 | 最适合做多模型聚合适配 |
+| Replicate | 按模型输出或 GPU 运行时间计费 | 例：Wan 2.1 i2v 480p 约 $0.09/秒，720p 约 $0.25/秒 | Flux 等常见 $0.025-$0.04/张 | 试验方便，但模型 schema 差异较大 |
+
+官方参考：阿里云百炼 [模型价格](https://help.aliyun.com/document_detail/2586397.html)、[通义万相文生图 API](https://help.aliyun.com/zh/model-studio/text-to-image-v2-api-reference)、[通义万相文生视频 API](https://help.aliyun.com/zh/model-studio/legacy-wan-text-to-video-api-reference)、Runway [API Pricing](https://docs.dev.runwayml.com/guides/pricing/)、OpenAI [API Pricing](https://openai.com/api/pricing/)、Google Vertex AI [Pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)、Luma [API Pricing](https://lumalabs.ai/api/pricing)、fal.ai [Pricing](https://docs.fal.ai/documentation/model-apis/pricing)、Replicate [Pricing](https://replicate.com/pricing)。
 
 <div id="tutorial-end" />
 
@@ -433,4 +468,3 @@ Pixelle-Video 的设计受到以下优秀开源项目的启发：
 ## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=AIDC-AI/Pixelle-Video&type=Date)](https://star-history.com/#AIDC-AI/Pixelle-Video&Date)
-

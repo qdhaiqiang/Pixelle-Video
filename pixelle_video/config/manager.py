@@ -132,6 +132,14 @@ class ConfigManager:
             "runninghub_api_key": self.config.comfyui.runninghub_api_key,
             "runninghub_concurrent_limit": self.config.comfyui.runninghub_concurrent_limit,
             "runninghub_instance_type": self.config.comfyui.runninghub_instance_type,
+            "dashscope": {
+                "api_key": self.config.comfyui.dashscope.api_key,
+                "region": self.config.comfyui.dashscope.region,
+                "base_url": self.config.comfyui.dashscope.base_url,
+                "workspace": self.config.comfyui.dashscope.workspace,
+                "poll_interval": self.config.comfyui.dashscope.poll_interval,
+                "timeout": self.config.comfyui.dashscope.timeout,
+            },
             "tts": {
                 "default_workflow": self.config.comfyui.tts.default_workflow,
             },
@@ -151,7 +159,11 @@ class ConfigManager:
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
         runninghub_concurrent_limit: Optional[int] = None,
-        runninghub_instance_type: Optional[str] = None
+        runninghub_instance_type: Optional[str] = None,
+        dashscope_api_key: Optional[str] = None,
+        dashscope_region: Optional[str] = None,
+        dashscope_base_url: Optional[str] = None,
+        dashscope_workspace: Optional[str] = None,
     ):
         """Set ComfyUI global configuration"""
         updates = {}
@@ -166,7 +178,17 @@ class ConfigManager:
         if runninghub_instance_type is not None:
             # Empty string means disable (treat as None for storage)
             updates["runninghub_instance_type"] = runninghub_instance_type if runninghub_instance_type else None
+        dashscope_updates = {}
+        if dashscope_api_key is not None:
+            dashscope_updates["api_key"] = dashscope_api_key if dashscope_api_key else None
+        if dashscope_region is not None:
+            dashscope_updates["region"] = dashscope_region
+        if dashscope_base_url is not None:
+            dashscope_updates["base_url"] = dashscope_base_url if dashscope_base_url else None
+        if dashscope_workspace is not None:
+            dashscope_updates["workspace"] = dashscope_workspace if dashscope_workspace else None
+        if dashscope_updates:
+            updates["dashscope"] = dashscope_updates
         
         if updates:
             self.update({"comfyui": updates})
-

@@ -25,6 +25,13 @@ comfyui:
   # Note for Docker users: Use host.docker.internal:8188 (Mac/Windows) or host IP address (Linux)
   runninghub_api_key: ""  # RunningHub API key (required for runninghub workflows)
   runninghub_concurrent_limit: 1  # Concurrent execution limit for RunningHub (1-10, default 1 for regular members)
+  dashscope:
+    api_key: ""  # Alibaba Cloud Bailian/DashScope API key (required for dashscope workflows)
+    region: "beijing"  # beijing, singapore, or us; API key and model region must match
+    base_url: ""  # Optional override, e.g. https://dashscope.aliyuncs.com/api/v1
+    workspace: ""  # Optional Bailian workspace ID
+    poll_interval: 10
+    timeout: 600
   
   # TTS-specific configuration
   tts:

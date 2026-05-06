@@ -1,0 +1,8 @@
+{
+  "source": "dashscope",
+  "model": "wan2.6-i2v-flash",
+  "resolution": "720P",
+  "duration": 5,
+  "prompt_extend": true,
+  "watermark": false
+}

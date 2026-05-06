@@ -16,6 +16,7 @@ Video Analysis Service - ComfyUI Workflow-based implementation
 Uses ComfyUI workflows to analyze video content and generate descriptions.
 """
 
+import subprocess
 from typing import Optional, Literal
 from pathlib import Path
 
@@ -67,7 +68,7 @@ class VideoAnalysisService(ComfyBaseService):
         self,
         video_path: str,
         # Workflow source selection
-        source: Literal['runninghub', 'selfhost'] = 'runninghub',
+        source: Literal['runninghub', 'selfhost', 'llm', 'dashscope'] = 'runninghub',
         workflow: Optional[str] = None,
         # ComfyUI connection (optional overrides)
         comfyui_url: Optional[str] = None,
@@ -111,6 +112,9 @@ class VideoAnalysisService(ComfyBaseService):
         video_path_obj = Path(video_path)
         if not video_path_obj.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
+
+        if source in ("llm", "dashscope"):
+            return await self._analyze_first_frame_with_llm(video_path_obj)
         
         # 2. Resolve workflow path using convention
         if workflow is None:
@@ -203,3 +207,26 @@ class VideoAnalysisService(ComfyBaseService):
         except Exception as e:
             logger.error(f"Video analysis error: {e}")
             raise
+
+    async def _analyze_first_frame_with_llm(self, video_path: Path) -> str:
+        """Fallback video analysis using the configured vision LLM on the first frame."""
+        from pixelle_video.utils.os_util import get_temp_path
+
+        frame_path = Path(get_temp_path(f"video_analysis_{video_path.stem}.jpg"))
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            str(frame_path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+
+        prompt = (
+            "这是一个视频的首帧。请根据画面推断视频素材内容，描述主体、场景、可能动作、"
+            "情绪氛围和适合用于短视频脚本的卖点。输出一段简洁中文描述，不要使用 Markdown。"
+        )
+        description = await self.core.image_analysis(str(frame_path), source="llm", prompt=prompt)
+        return f"Video asset. First-frame analysis: {description}"

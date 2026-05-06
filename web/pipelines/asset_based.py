@@ -187,6 +187,7 @@ class AssetBasedPipelineUI(PipelineUI):
                 st.markdown(tr("asset_based.source.how"))
             
             source_options = {
+                "llm": tr("asset_based.source.llm"),
                 "runninghub": tr("asset_based.source.runninghub"),
                 "selfhost": tr("asset_based.source.selfhost")
             }
@@ -195,8 +196,9 @@ class AssetBasedPipelineUI(PipelineUI):
             comfyui_config = config_manager.get_comfyui_config()
             has_runninghub = bool(comfyui_config.get("runninghub_api_key"))
             has_selfhost = bool(comfyui_config.get("comfyui_url"))
+            has_llm = config_manager.validate()
             
-            # Default to runninghub always
+            # Default to current LLM vision analysis when available
             default_source_index = 0
             
             source = st.radio(
@@ -210,7 +212,12 @@ class AssetBasedPipelineUI(PipelineUI):
             )
             
             # Show hint based on selection
-            if source == "runninghub":
+            if source == "llm":
+                if not has_llm:
+                    st.warning(tr("settings.not_configured"))
+                else:
+                    st.info(tr("asset_based.source.llm_hint"))
+            elif source == "runninghub":
                 if not has_runninghub:
                     st.warning(tr("asset_based.source.runninghub_not_configured"))
                 else:
@@ -443,4 +450,3 @@ class AssetBasedPipelineUI(PipelineUI):
 
 # Register self
 register_pipeline_ui(AssetBasedPipelineUI)
-

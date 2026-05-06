@@ -289,6 +289,43 @@ def render_advanced_settings():
                     )
                     # Convert display value back to actual value
                     runninghub_48g_enabled = runninghub_instance_type_display == tr("settings.comfyui.runninghub_instance_48g")
+
+                st.markdown("---")
+
+                # Alibaba Cloud Bailian / DashScope configuration
+                st.markdown(f"**{tr('settings.comfyui.dashscope_title')}**")
+                dashscope_config = comfyui_config.get("dashscope", {})
+                dashscope_api_key = st.text_input(
+                    tr("settings.comfyui.dashscope_api_key"),
+                    value=dashscope_config.get("api_key", "") or "",
+                    type="password",
+                    help=tr("settings.comfyui.dashscope_api_key_help"),
+                    key="dashscope_api_key_input"
+                )
+                dashscope_region_options = ["beijing", "singapore", "us"]
+                current_dashscope_region = dashscope_config.get("region", "beijing")
+                dashscope_region = st.selectbox(
+                    tr("settings.comfyui.dashscope_region"),
+                    options=dashscope_region_options,
+                    index=dashscope_region_options.index(current_dashscope_region) if current_dashscope_region in dashscope_region_options else 0,
+                    help=tr("settings.comfyui.dashscope_region_help"),
+                    key="dashscope_region_input"
+                )
+                dash_base_col, dash_workspace_col = st.columns(2)
+                with dash_base_col:
+                    dashscope_base_url = st.text_input(
+                        tr("settings.comfyui.dashscope_base_url"),
+                        value=dashscope_config.get("base_url", "") or "",
+                        help=tr("settings.comfyui.dashscope_base_url_help"),
+                        key="dashscope_base_url_input"
+                    )
+                with dash_workspace_col:
+                    dashscope_workspace = st.text_input(
+                        tr("settings.comfyui.dashscope_workspace"),
+                        value=dashscope_config.get("workspace", "") or "",
+                        help=tr("settings.comfyui.dashscope_workspace_help"),
+                        key="dashscope_workspace_input"
+                    )
         
         # ====================================================================
         # Action Buttons (full width at bottom)
@@ -313,7 +350,11 @@ def render_advanced_settings():
                         comfyui_api_key=comfyui_api_key if comfyui_api_key else None,
                         runninghub_api_key=runninghub_api_key if runninghub_api_key else None,
                         runninghub_concurrent_limit=int(runninghub_concurrent_limit),
-                        runninghub_instance_type=instance_type
+                        runninghub_instance_type=instance_type,
+                        dashscope_api_key=dashscope_api_key,
+                        dashscope_region=dashscope_region,
+                        dashscope_base_url=dashscope_base_url,
+                        dashscope_workspace=dashscope_workspace,
                     )
                     
                     # Only save to file if LLM config is valid
@@ -332,4 +373,3 @@ def render_advanced_settings():
                 config_manager.save()
                 st.success(tr("status.config_reset"))
                 safe_rerun()
-
