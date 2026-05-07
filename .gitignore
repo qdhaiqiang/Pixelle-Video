@@ -74,3 +74,6 @@ examples/
 repositories/
 
 *.out
+._*
+._*
+*-video-commentary-automation/

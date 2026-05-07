@@ -26,7 +26,7 @@ from loguru import logger
 
 from web.i18n import tr, get_language
 from web.pipelines.base import PipelineUI, register_pipeline_ui
-from web.components.content_input import render_bgm_section, render_version_info
+from web.components.content_input import render_bgm_section
 from web.utils.async_helpers import run_async
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
@@ -59,7 +59,6 @@ class AssetBasedPipelineUI(PipelineUI):
         with left_col:
             asset_params = self._render_asset_input()
             bgm_params = render_bgm_section(key_prefix="asset_")
-            render_version_info()
         
         # ====================================================================
         # Middle Column: Video Configuration

@@ -513,16 +513,18 @@ class PersistenceService:
                     title = "Untitled"
         
         # Extract key info for index
+        result = metadata.get("result", {})
         index_entry = {
             "task_id": task_id,
             "created_at": metadata.get("created_at"),
             "completed_at": metadata.get("completed_at"),
             "status": metadata.get("status", "unknown"),
             "title": title,
-            "duration": metadata.get("result", {}).get("duration", 0),
-            "n_frames": metadata.get("result", {}).get("n_frames", 0),
-            "file_size": metadata.get("result", {}).get("file_size", 0),
-            "video_path": metadata.get("result", {}).get("video_path"),
+            "duration": result.get("duration", 0),
+            "n_frames": result.get("n_frames", 0),
+            "file_size": result.get("file_size", 0),
+            "video_path": result.get("video_path"),
+            "video_paths": result.get("video_paths", [result.get("video_path")] if result.get("video_path") else []),
         }
         
         # Update or append

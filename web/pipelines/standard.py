@@ -23,7 +23,7 @@ from web.i18n import tr
 from web.pipelines.base import PipelineUI, register_pipeline_ui
 
 # Import components
-from web.components.content_input import render_content_input, render_bgm_section, render_version_info
+from web.components.content_input import render_content_input, render_bgm_section
 from web.components.style_config import render_style_config
 from web.components.output_preview import render_output_preview
 
@@ -59,7 +59,6 @@ class StandardPipelineUI(PipelineUI):
             bgm_params = render_bgm_section()
             
             # Version info & GitHub link
-            render_version_info()
         
         # ====================================================================
         # Middle Column: Style Configuration

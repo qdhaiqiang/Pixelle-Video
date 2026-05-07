@@ -30,7 +30,7 @@ from loguru import logger
 
 from web.state.session import init_session_state, init_i18n, get_pixelle_video
 from web.components.header import render_header
-from web.i18n import tr
+from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
 
 # Page config
@@ -189,9 +189,16 @@ def render_grid_task_card(task: dict, pixelle_video):
     
     # Card container
     with st.container():
-        # Video preview at top
-        if video_path and os.path.exists(video_path):
-            st.video(video_path, autoplay=False, loop=False, muted=False)
+        # Get all video paths (support multi-video tasks)
+        video_paths = task.get("video_paths", [video_path] if video_path else [])
+        n_videos = len(video_paths)
+
+        # Video preview - show first video, with count badge for multi-video
+        first_video = video_paths[0] if video_paths else ""
+        if first_video and os.path.exists(first_video):
+            st.video(first_video, autoplay=False, loop=False, muted=False)
+            if n_videos > 1:
+                st.caption(f"📦 {n_videos} videos")
         else:
             st.markdown(
                 f"<div style='background: #f0f0f0; height: 180px; display: flex; align-items: center; "
@@ -334,35 +341,37 @@ def render_task_detail_modal(task_id: str, pixelle_video):
         else:
             st.info("No storyboard data")
     
-    # Right column: Final video
+    # Right column: Final video(s)
     with col_video:
         st.markdown(f"**🎥 {tr('info.video_information')}**")
-        
-        video_path = metadata.get("result", {}).get("video_path")
-        if video_path and os.path.exists(video_path):
-            st.video(video_path)
-            
-            # Video info
-            result = metadata.get("result", {})
-            st.markdown(f"**{tr('info.duration')}:** {format_duration(result.get('duration', 0))}")
-            st.markdown(f"**{tr('info.frames')}:** {result.get('n_frames', 0)}")
-            st.markdown(f"**{tr('info.file_size')}:** {format_file_size(result.get('file_size', 0))}")
 
-            # Download button
-            with open(video_path, "rb") as f:
-                # Get title from input (which now includes the generated title)
-                title = metadata.get("input", {}).get("title", "video")
-                if not title:
-                    title = "video"
-                st.download_button(
-                    tr("history.detail.download_video"),
-                    data=f,
-                    file_name=f"{title}.mp4",
-                    mime="video/mp4",
-                    use_container_width=True
-                )
+        result = metadata.get("result", {})
+        video_paths = result.get("video_paths", [result.get("video_path")] if result.get("video_path") else [])
+
+        if video_paths:
+            for idx, vp in enumerate(video_paths):
+                if not os.path.exists(vp):
+                    continue
+                seg_label = f"第 {idx+1} 段" if len(video_paths) > 1 and get_language() == "zh_CN" else (f"Segment {idx+1}" if len(video_paths) > 1 else "Video")
+                st.markdown(f"**{seg_label}** — `{os.path.basename(vp)}`")
+                st.video(vp)
+
+                with open(vp, "rb") as f:
+                    st.download_button(
+                        f"⬇️ {seg_label}",
+                        data=f,
+                        file_name=os.path.basename(vp),
+                        mime="video/mp4",
+                        use_container_width=True,
+                        key=f"detail_download_{task_id}_{idx}"
+                    )
         else:
             st.warning("Video file not found")
+
+        # Video info
+        st.markdown(f"**{tr('info.duration')}:** {format_duration(result.get('duration', 0))}")
+        st.markdown(f"**{tr('info.frames')}:** {result.get('n_frames', 0)}")
+        st.markdown(f"**{tr('info.file_size')}:** {format_file_size(result.get('file_size', 0))}")
     
     st.divider()
     

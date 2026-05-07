@@ -8,7 +8,6 @@ from loguru import logger
 import httpx
 from web.i18n import tr, get_language
 from web.pipelines.base import PipelineUI, register_pipeline_ui
-from web.components.content_input import render_version_info
 from web.components.digital_tts_config import render_style_config
 from web.utils.async_helpers import run_async
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
@@ -42,7 +41,6 @@ class DigitalHumanPipelineUI(PipelineUI):
             asset_params = self.render_digital_human_input()
             style_params = render_style_config(pixelle_video)
             # bgm_params = render_bgm_section(key_prefix="asset_")
-            render_version_info()
         
         # ====================================================================
         # Middle Column: Video Configuration

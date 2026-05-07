@@ -9,7 +9,6 @@ from loguru import logger
 import httpx
 from web.i18n import tr, get_language
 from web.pipelines.base import PipelineUI, register_pipeline_ui
-from web.components.content_input import render_version_info
 from web.utils.async_helpers import run_async
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
@@ -40,7 +39,6 @@ class ActionTransferPipelineUI(PipelineUI):
         # ====================================================================
         with left_col:
             video_params = self.render_action_transfer_video_input(pixelle_video)
-            render_version_info()
         
         # ====================================================================
         # Middle Column: Image Upload & Prompt

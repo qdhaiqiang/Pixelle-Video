@@ -135,9 +135,10 @@ class Storyboard:
 @dataclass
 class VideoGenerationResult:
     """Video generation result"""
-    video_path: str                            # Final video path
+    video_path: str                            # Final video path (primary)
     storyboard: Storyboard                     # Complete storyboard
     duration: float                            # Total duration
     file_size: int                             # File size (bytes)
     created_at: datetime = field(default_factory=datetime.now)
+    additional_video_paths: List[str] = field(default_factory=list)  # Extra segments
 

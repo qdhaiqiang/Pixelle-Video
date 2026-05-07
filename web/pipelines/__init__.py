@@ -29,6 +29,7 @@ from web.pipelines import asset_based
 from web.pipelines import digital_human
 from web.pipelines import i2v
 from web.pipelines import action_transfer
+from web.pipelines import commentary
 
 __all__ = [
     "PipelineUI",
