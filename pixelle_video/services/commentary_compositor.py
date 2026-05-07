@@ -135,13 +135,13 @@ class CommentaryCompositor:
         return text.replace("{", "").replace("}", "")
 
     @staticmethod
-    def _wrap_caption(text: str, max_chars: int = 19) -> str:
+    def _wrap_caption(text: str, max_chars: int = 26) -> str:
         text = re.sub(r"\s+", "", text)
         lines: List[str] = []
         while text:
             lines.append(text[:max_chars])
             text = text[max_chars:]
-        return r"\N".join(lines[:3])
+        return r"\N".join(lines[:2])
 
     # ==================== Step 1: Clip Extraction ====================
 
@@ -245,6 +245,9 @@ class CommentaryCompositor:
             slot = chunk.end - chunk.start
             target_dur = max(0.1, slot * max(0.55, min(1.0, cfg.narration_slot_ratio)))
             tempo = raw_dur / target_dur if target_dur > 0 else 1.0
+            # Never slow down audio (tempo < 1); only speed up if too long
+            if tempo < 1.0:
+                tempo = 1.0
 
             filters = f"{self._atempo_chain(tempo)},apad,atrim=0:{slot},asetpts=N/SR/TB,aresample=48000"
             self._run(["ffmpeg", "-hide_banner", "-y", "-i", str(normalized),

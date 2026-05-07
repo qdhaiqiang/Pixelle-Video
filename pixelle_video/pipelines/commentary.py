@@ -448,10 +448,15 @@ class CommentaryPipeline(BasePipeline):
                 "pipeline": "commentary",
                 "input": {
                     "title": video_title,
+                    "text": input_params.get("text", ""),
+                    "mode": "commentary",
+                    "n_scenes": sum(len(s.chunks) for s in scripts),
+                    "tts_inference_mode": input_params.get("tts_inference_mode", "edge"),
+                    "tts_voice": input_params.get("tts_voice", "zh-CN-YunxiNeural"),
+                    "tts_rate": input_params.get("tts_rate", "+18%"),
                     "source_video": source,
                     "target_duration": input_params.get("target_duration"),
                     "segment_count": input_params.get("segment_count", 1),
-                    "tts_voice": input_params.get("tts_voice"),
                     "bgm_path": input_params.get("bgm_path"),
                 },
                 "result": {
@@ -459,7 +464,7 @@ class CommentaryPipeline(BasePipeline):
                     "video_paths": [result.video_path] + list(result.additional_video_paths),
                     "duration": result.duration,
                     "file_size": result.file_size,
-                    "n_chunks": sum(len(s.chunks) for s in scripts),
+                    "n_frames": sum(len(s.chunks) for s in scripts),
                     "n_segments": len(scripts),
                 },
                 "config": {
@@ -467,6 +472,10 @@ class CommentaryPipeline(BasePipeline):
                 },
             }
             await self.core.persistence.save_task_metadata(task_id, metadata)
+            # Save storyboard for History detail page
+            if result.storyboard:
+                await self.core.persistence.save_storyboard(task_id, result.storyboard)
+                logger.info(f"💾 Saved storyboard: {task_id}")
             logger.info(f"💾 Saved task metadata: {task_id}")
         except Exception as e:
             logger.error(f"Failed to persist task data: {e}")
