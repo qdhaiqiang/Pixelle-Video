@@ -154,7 +154,7 @@ class ConfigManager:
         }
     
     def set_comfyui_config(
-        self, 
+        self,
         comfyui_url: Optional[str] = None,
         comfyui_api_key: Optional[str] = None,
         runninghub_api_key: Optional[str] = None,
@@ -189,6 +189,35 @@ class ConfigManager:
             dashscope_updates["workspace"] = dashscope_workspace if dashscope_workspace else None
         if dashscope_updates:
             updates["dashscope"] = dashscope_updates
-        
+
         if updates:
             self.update({"comfyui": updates})
+
+    def get_bilibili_config(self) -> dict:
+        """Get Bilibili configuration as dict"""
+        return {
+            "enabled": self.config.bilibili.enabled,
+            "cookie_path": self.config.bilibili.cookie_path,
+            "default_tid": self.config.bilibili.default_tid,
+            "default_copyright": self.config.bilibili.default_copyright,
+        }
+
+    def set_bilibili_config(
+        self,
+        enabled: Optional[bool] = None,
+        cookie_path: Optional[str] = None,
+        default_tid: Optional[int] = None,
+        default_copyright: Optional[int] = None,
+    ):
+        """Set Bilibili configuration"""
+        updates = {}
+        if enabled is not None:
+            updates["enabled"] = enabled
+        if cookie_path is not None:
+            updates["cookie_path"] = cookie_path
+        if default_tid is not None:
+            updates["default_tid"] = default_tid
+        if default_copyright is not None:
+            updates["default_copyright"] = default_copyright
+        if updates:
+            self.update({"bilibili": updates})

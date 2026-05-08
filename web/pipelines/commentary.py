@@ -425,6 +425,62 @@ class CommentaryPipelineUI(PipelineUI):
                 tts_rate = "+0%"
 
             # ================================================================
+            # Bilibili Upload Settings
+            # ================================================================
+            st.markdown("---")
+            st.markdown(f"**{tr('commentary.bilibili.title')}**")
+
+            bili_config = config_manager.get_bilibili_config()
+            bili_upload = st.checkbox(
+                tr("commentary.bilibili.enable"),
+                value=False,
+                key="commentary_bili_upload"
+            )
+
+            bili_video_title = ""
+            bili_extra_tags = ""
+            bili_tid = 228
+            bili_copyright = 1
+
+            if bili_upload:
+                bili_video_title = st.text_input(
+                    tr("commentary.bilibili.video_title"),
+                    placeholder=tr("commentary.bilibili.video_title_placeholder"),
+                    key="commentary_bili_title"
+                )
+                bili_extra_tags = st.text_input(
+                    tr("commentary.bilibili.extra_tags"),
+                    placeholder=tr("commentary.bilibili.extra_tags_placeholder"),
+                    help=tr("commentary.bilibili.extra_tags_help"),
+                    key="commentary_bili_tags"
+                )
+                # TID options
+                tid_options = {
+                    228: "电影", 230: "电视剧", 231: "计算机技术",
+                    232: "软件应用", 171: "电子竞技", 172: "单机游戏",
+                    31: "音乐综合", 28: "原创音乐", 160: "搞笑"
+                }
+                tid_labels = [f"{tid} - {name}" for tid, name in tid_options.items()]
+                tid_values = list(tid_options.keys())
+                default_tid_index = tid_values.index(bili_config.get("default_tid", 228)) if bili_config.get("default_tid", 228) in tid_values else 0
+                selected_tid_label = st.selectbox(
+                    tr("commentary.bilibili.tid"),
+                    tid_labels,
+                    index=default_tid_index,
+                    key="commentary_bili_tid"
+                )
+                bili_tid = tid_values[tid_labels.index(selected_tid_label)]
+
+                bili_copyright = st.radio(
+                    tr("commentary.bilibili.copyright"),
+                    options=[1, 2],
+                    format_func=lambda x: tr("commentary.bilibili.copyright_original") if x == 1 else tr("commentary.bilibili.copyright_reprint"),
+                    index=0 if bili_config.get("default_copyright", 1) == 1 else 1,
+                    horizontal=True,
+                    key="commentary_bili_copyright"
+                )
+
+            # ================================================================
             # TTS Preview
             # ================================================================
             with st.expander(tr("tts.preview_title"), expanded=False):
@@ -472,6 +528,11 @@ class CommentaryPipelineUI(PipelineUI):
             "tts_rate": tts_rate if tts_mode == "local" else "+0%",
             "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
             "ref_audio": str(ref_audio_path) if ref_audio_path else None,
+            "bili_upload": bili_upload,
+            "bili_video_title": bili_video_title,
+            "bili_extra_tags": bili_extra_tags,
+            "bili_tid": bili_tid,
+            "bili_copyright": bili_copyright,
         }
 
     def _render_output_preview(self, pixelle_video: Any, video_params: dict):
@@ -599,6 +660,45 @@ class CommentaryPipelineUI(PipelineUI):
                         f"📦 {total_size_mb:.1f}MB ({len(all_paths)} files)"
                     )
                     st.caption(info_text)
+
+                    # ================================================================
+                    # Bilibili Upload
+                    # ================================================================
+                    if video_params.get("bili_upload"):
+                        st.markdown("---")
+                        st.markdown(f"**{tr('commentary.bilibili.title')}**")
+
+                        bili_config = config_manager.get_bilibili_config()
+                        cookie_path = bili_config.get("cookie_path", "")
+
+                        if not cookie_path:
+                            st.error(tr("commentary.bilibili.upload_failed", error="Bilibili cookie path not configured"))
+                        else:
+                            for idx, vp in enumerate(all_paths):
+                                if not os.path.exists(vp):
+                                    continue
+                                seg_label = f"第 {idx+1} 段" if get_language() == "zh_CN" else f"Segment {idx+1}"
+                                with st.spinner(tr("commentary.bilibili.uploading") + f" ({seg_label})"):
+                                    try:
+                                        from pixelle_video.services.bilibili_uploader import BilibiliUploader
+                                        uploader = BilibiliUploader(cookie_path=cookie_path)
+
+                                        title = video_params.get("bili_video_title", "") or Path(vp).stem
+                                        extra_tags = video_params.get("bili_extra_tags", "")
+                                        tid = video_params.get("bili_tid", 228)
+                                        copyright_type = video_params.get("bili_copyright", 1)
+
+                                        bvid = uploader.upload(
+                                            video_path=vp,
+                                            title=title,
+                                            extra_tags=extra_tags,
+                                            tid=tid,
+                                            copyright=copyright_type,
+                                        )
+                                        st.success(tr("commentary.bilibili.upload_success", bvid=bvid))
+                                    except Exception as e:
+                                        logger.exception(e)
+                                        st.error(tr("commentary.bilibili.upload_failed", error=str(e)))
 
                 except Exception as e:
                     logger.exception(e)

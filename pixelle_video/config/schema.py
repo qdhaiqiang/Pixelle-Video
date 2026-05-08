@@ -91,6 +91,17 @@ class ComfyUIConfig(BaseModel):
     video: VideoSubConfig = Field(default_factory=VideoSubConfig, description="Video-specific configuration")
 
 
+class BilibiliConfig(BaseModel):
+    """Bilibili upload configuration"""
+    enabled: bool = Field(default=False, description="Enable Bilibili auto-upload")
+    cookie_path: str = Field(
+        default="",
+        description="Path to biliup cookie file (e.g. cookies.json)"
+    )
+    default_tid: int = Field(default=228, description="Default zone TID (228=电影)")
+    default_copyright: int = Field(default=1, description="Default copyright: 1=自制, 2=转载")
+
+
 class TemplateConfig(BaseModel):
     """Template configuration"""
     default_template: str = Field(
@@ -104,6 +115,7 @@ class PixelleVideoConfig(BaseModel):
     project_name: str = Field(default="Pixelle-Video", description="Project name")
     llm: LLMConfig = Field(default_factory=LLMConfig)
     comfyui: ComfyUIConfig = Field(default_factory=ComfyUIConfig)
+    bilibili: BilibiliConfig = Field(default_factory=BilibiliConfig)
     template: TemplateConfig = Field(default_factory=TemplateConfig)
     
     def is_llm_configured(self) -> bool:
