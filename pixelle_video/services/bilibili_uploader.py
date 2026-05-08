@@ -25,20 +25,26 @@ from typing import List, Optional
 
 from loguru import logger
 
+from pixelle_video.services.biliup_installer import ensure_biliup
+
 
 class BilibiliUploader:
     """Bilibili video uploader using biliup-rs."""
 
-    def __init__(self, cookie_path: str, biliup_cmd: str = "biliup"):
+    def __init__(self, cookie_path: str, biliup_cmd: Optional[str] = None):
         """
         Initialize uploader.
 
         Args:
             cookie_path: Path to biliup cookie file (e.g. cookies.json)
-            biliup_cmd: biliup binary name or path
+            biliup_cmd: biliup binary name or path (auto-detected if None)
         """
         self.cookie_path = str(Path(cookie_path).expanduser().resolve())
-        self.biliup_cmd = biliup_cmd
+        # Auto-install biliup if not found
+        if biliup_cmd is None:
+            self.biliup_cmd = ensure_biliup()
+        else:
+            self.biliup_cmd = biliup_cmd
 
     def _run(self, cmd: List[str], timeout: int = 600) -> subprocess.CompletedProcess:
         """Run biliup command."""

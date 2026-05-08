@@ -370,9 +370,11 @@ def render_advanced_settings():
             if st.button(tr("settings.bilibili.test_login"), use_container_width=True, key="bilibili_test_login_btn"):
                 if bili_cookie_path:
                     try:
+                        from pixelle_video.services.biliup_installer import ensure_biliup
+                        biliup_path = ensure_biliup()
                         import subprocess
                         result = subprocess.run(
-                            ["biliup", "-u", bili_cookie_path, "upload", "--help"],
+                            [biliup_path, "-u", bili_cookie_path, "upload", "--help"],
                             capture_output=True, text=True, timeout=10
                         )
                         if result.returncode == 0:
@@ -380,8 +382,6 @@ def render_advanced_settings():
                         else:
                             err = result.stderr or "Cookie file may be invalid"
                             st.error(tr("settings.bilibili.login_failed", error=err))
-                    except FileNotFoundError:
-                        st.error(tr("settings.bilibili.login_failed", error="biliup command not found. Please install biliup-rs first."))
                     except Exception as e:
                         st.error(tr("settings.bilibili.login_failed", error=str(e)))
                 else:
