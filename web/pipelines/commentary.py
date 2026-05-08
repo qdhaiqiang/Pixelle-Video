@@ -456,18 +456,29 @@ class CommentaryPipelineUI(PipelineUI):
             bili_cookie_path = ""
 
             if bili_upload:
-                # ── Step 1: Guide user to generate cookie locally ──
-                with st.expander(tr("commentary.bilibili.cookie_step1"), expanded=True):
-                    st.markdown(tr("commentary.bilibili.cookie_step1_desc"))
-                    st.markdown(f"**macOS (Intel):**")
-                    st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-macos.tar.xz\ntar xf biliupR-v0.2.4-x86_64-macos.tar.xz\n./biliupR-v0.2.4-x86_64-macos/biliup -u ./cookies.json login", language="bash")
-                    st.markdown(f"**macOS (Apple Silicon M1/M2/M3):**")
-                    st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-aarch64-macos.tar.xz\ntar xf biliupR-v0.2.4-aarch64-macos.tar.xz\n./biliupR-v0.2.4-aarch64-macos/biliup -u ./cookies.json login", language="bash")
-                    st.markdown(f"**Linux:**")
-                    st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-linux.tar.xz\ntar xf biliupR-v0.2.4-x86_64-linux.tar.xz\n./biliupR-v0.2.4-x86_64-linux/biliup -u ./cookies.json login", language="bash")
-                    st.markdown(f"**Windows:** 下载 [biliupR-v0.2.4-x86_64-windows.zip](https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-windows.zip) 并解压，然后在 PowerShell 运行：")
-                    st.code(r".\biliup.exe -u .\cookies.json login", language="powershell")
-                    st.info(tr("commentary.bilibili.cookie_step1_tip"))
+                # ── Step 1: Cookie guide (toggleable popup-like) ──
+                if "show_bili_cookie_guide" not in st.session_state:
+                    st.session_state.show_bili_cookie_guide = False
+
+                if st.button(tr("commentary.bilibili.cookie_guide_btn"), key="bili_cookie_guide_toggle"):
+                    st.session_state.show_bili_cookie_guide = not st.session_state.show_bili_cookie_guide
+
+                if st.session_state.show_bili_cookie_guide:
+                    with st.container(border=True):
+                        st.markdown(f"**{tr('commentary.bilibili.cookie_step1')}**")
+                        st.markdown(tr("commentary.bilibili.cookie_step1_desc"))
+                        st.markdown(f"**macOS (Intel):**")
+                        st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-macos.tar.xz\ntar xf biliupR-v0.2.4-x86_64-macos.tar.xz\n./biliupR-v0.2.4-x86_64-macos/biliup -u ./cookies.json login", language="bash")
+                        st.markdown(f"**macOS (Apple Silicon M1/M2/M3):**")
+                        st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-aarch64-macos.tar.xz\ntar xf biliupR-v0.2.4-aarch64-macos.tar.xz\n./biliupR-v0.2.4-aarch64-macos/biliup -u ./cookies.json login", language="bash")
+                        st.markdown(f"**Linux:**")
+                        st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-linux.tar.xz\ntar xf biliupR-v0.2.4-x86_64-linux.tar.xz\n./biliupR-v0.2.4-x86_64-linux/biliup -u ./cookies.json login", language="bash")
+                        st.markdown(f"**Windows:** 下载 [biliupR-v0.2.4-x86_64-windows.zip](https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-windows.zip) 并解压，然后在 PowerShell 运行：")
+                        st.code(r".\biliup.exe -u .\cookies.json login", language="powershell")
+                        st.info(tr("commentary.bilibili.cookie_step1_tip"))
+                        if st.button(tr("commentary.bilibili.cookie_guide_close"), key="bili_cookie_guide_close"):
+                            st.session_state.show_bili_cookie_guide = False
+                            safe_rerun()
 
                 # ── Step 2: Upload cookie file ──
                 st.markdown(f"**{tr('commentary.bilibili.cookie_step2')}**")
@@ -499,13 +510,19 @@ class CommentaryPipelineUI(PipelineUI):
                     if bili_cookie_path:
                         st.session_state["bili_cookie_path"] = bili_cookie_path
 
+                # Use session state for AI-generated values
+                default_title = st.session_state.get("commentary_bili_title_value", "")
+                default_tags = st.session_state.get("commentary_bili_tags_value", "")
+
                 bili_video_title = st.text_input(
                     tr("commentary.bilibili.video_title"),
+                    value=default_title,
                     placeholder=tr("commentary.bilibili.video_title_placeholder"),
                     key="commentary_bili_title"
                 )
                 bili_extra_tags = st.text_input(
                     tr("commentary.bilibili.extra_tags"),
+                    value=default_tags,
                     placeholder=tr("commentary.bilibili.extra_tags_placeholder"),
                     help=tr("commentary.bilibili.extra_tags_help"),
                     key="commentary_bili_tags"
@@ -720,6 +737,9 @@ class CommentaryPipelineUI(PipelineUI):
                     )
                     st.caption(info_text)
 
+                    # Save result to session state for AI generation
+                    st.session_state["commentary_last_result"] = result
+
                     # ================================================================
                     # Jianying Materials Export Info
                     # ================================================================
@@ -742,6 +762,51 @@ class CommentaryPipelineUI(PipelineUI):
                         elif not Path(cookie_path).exists():
                             st.error(tr("commentary.bilibili.upload_failed", error=f"Cookie file not found: {cookie_path}"))
                         else:
+                            # ── AI Generate Title & Tags ──
+                            has_ai_meta = bool(
+                                st.session_state.get("commentary_bili_title_value", "")
+                                or st.session_state.get("commentary_bili_tags_value", "")
+                            )
+                            if not has_ai_meta and not video_params.get("bili_video_title", "") and not video_params.get("bili_extra_tags", ""):
+                                if st.button(tr("commentary.bilibili.ai_generate"), use_container_width=True, key="bili_ai_generate_btn"):
+                                    with st.spinner(tr("commentary.bilibili.ai_generating")):
+                                        try:
+                                            narrations = "\n".join(
+                                                f"{i+1}. {frame.narration}"
+                                                for i, frame in enumerate(result.storyboard.frames)
+                                                if frame.narration
+                                            )
+                                            if narrations:
+                                                prompt = (
+                                                    f"你是一个 Bilibili 视频运营专家。请根据以下影视解说内容，生成：\n"
+                                                    f"1. 一个吸引人的视频标题（15-40字，要包含关键词，让人有点击欲望）\n"
+                                                    f"2. 5-10个相关的标签（逗号分隔，不超过20字每个）\n\n"
+                                                    f"解说内容：\n{narrations[:2000]}\n\n"
+                                                    f"请严格以 JSON 格式输出，不要有任何其他文字：\n"
+                                                    f'{{"title": "...", "tags": "tag1,tag2,tag3,..."}}'
+                                                )
+                                                response = run_async(pixelle_video.llm(prompt=prompt, max_tokens=500))
+                                                # Parse JSON
+                                                import json, re
+                                                try:
+                                                    match = re.search(r'\{[\s\S]*?\}', response)
+                                                    if match:
+                                                        data = json.loads(match.group())
+                                                        st.session_state["commentary_bili_title_value"] = data.get("title", "")
+                                                        st.session_state["commentary_bili_tags_value"] = data.get("tags", "")
+                                                        st.success(tr("commentary.bilibili.ai_generated"))
+                                                        safe_rerun()
+                                                    else:
+                                                        st.warning(tr("commentary.bilibili.ai_parse_failed"))
+                                                except Exception as e:
+                                                    st.warning(tr("commentary.bilibili.ai_parse_failed"))
+                                                    logger.warning(f"AI meta parse failed: {e}, response: {response[:200]}")
+                                            else:
+                                                st.info(tr("commentary.bilibili.no_narration"))
+                                        except Exception as e:
+                                            logger.exception(e)
+                                            st.error(tr("commentary.bilibili.ai_failed", error=str(e)))
+
                             for idx, vp in enumerate(all_paths):
                                 if not os.path.exists(vp):
                                     continue

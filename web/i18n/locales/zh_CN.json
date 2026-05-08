@@ -597,6 +597,14 @@
     "commentary.bilibili.cookie_path_local_help": "如果 cookie 文件已在服务器上，直接输入路径",
     "commentary.bilibili.cookie_step1": "步骤 1：在您的电脑获取 Cookie（展开查看详情）",
     "commentary.bilibili.cookie_step1_desc": "在您的本地电脑终端按以下步骤操作：\n\n1. **下载 biliup**（对应您的操作系统，点击上方代码块中的命令一键复制）\n2. **运行登录命令**：按提示输入手机号和验证码完成登录\n3. **获取 cookies.json**：登录成功后会在当前目录生成  文件\n\n完成后再展开「步骤 2」上传该文件。",
-    "commentary.bilibili.cookie_step1_tip": "💡 提示：如果您就在服务器本机操作，可以跳过上传，直接在下方输入框填写 cookie 路径"
+    "commentary.bilibili.cookie_step1_tip": "💡 提示：如果您就在服务器本机操作，可以跳过上传，直接在下方输入框填写 cookie 路径",
+    "commentary.bilibili.cookie_guide_btn": "📖 如何获取 Cookie（点击展开/收起）",
+    "commentary.bilibili.cookie_guide_close": "❌ 关闭",
+    "commentary.bilibili.ai_generate": "🤖 AI 生成标题和标签",
+    "commentary.bilibili.ai_generating": "正在生成标题和标签...",
+    "commentary.bilibili.ai_generated": "✅ 标题和标签已生成",
+    "commentary.bilibili.ai_parse_failed": "⚠️ 无法解析 AI 返回的内容，请手动填写",
+    "commentary.bilibili.ai_failed": "❌ AI 生成失败：{error}",
+    "commentary.bilibili.no_narration": "ℹ️ 未找到解说文案，无法生成标题和标签"
   }
 }

@@ -597,6 +597,14 @@
     "commentary.bilibili.cookie_path_local_help": "If cookie file is already on the server, enter its path directly",
     "commentary.bilibili.cookie_step1": "Step 1: Get Cookie on your computer (expand for details)",
     "commentary.bilibili.cookie_step1_desc": "Follow these steps on your local computer terminal:\n\n1. **Download biliup** (matching your OS — click the code block above to copy)\n2. **Run login command**: Follow prompts to enter phone number and verification code\n3. **Get cookies.json**: After successful login,  will be generated in the current directory\n\nThen proceed to Step 2 to upload the file.",
-    "commentary.bilibili.cookie_step1_tip": "💡 Tip: If you are on the server machine directly, skip upload and enter the cookie path below"
+    "commentary.bilibili.cookie_step1_tip": "💡 Tip: If you are on the server machine directly, skip upload and enter the cookie path below",
+    "commentary.bilibili.cookie_guide_btn": "📖 How to get Cookie (click to toggle)",
+    "commentary.bilibili.cookie_guide_close": "❌ Close",
+    "commentary.bilibili.ai_generate": "🤖 AI Generate Title & Tags",
+    "commentary.bilibili.ai_generating": "Generating title and tags...",
+    "commentary.bilibili.ai_generated": "✅ Title and tags generated",
+    "commentary.bilibili.ai_parse_failed": "⚠️ Failed to parse AI response, please fill in manually",
+    "commentary.bilibili.ai_failed": "❌ AI generation failed: {error}",
+    "commentary.bilibili.no_narration": "ℹ️ No narration found, cannot generate title and tags"
   }
 }
