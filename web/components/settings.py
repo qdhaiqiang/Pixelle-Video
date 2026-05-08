@@ -14,6 +14,8 @@
 System settings component for web UI
 """
 
+from pathlib import Path
+
 import streamlit as st
 
 from web.i18n import tr, get_language
