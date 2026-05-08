@@ -141,4 +141,5 @@ class VideoGenerationResult:
     file_size: int                             # File size (bytes)
     created_at: datetime = field(default_factory=datetime.now)
     additional_video_paths: List[str] = field(default_factory=list)  # Extra segments
+    cover_paths: List[str] = field(default_factory=list)  # Cover image paths per segment
 

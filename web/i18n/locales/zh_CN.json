@@ -605,6 +605,20 @@
     "commentary.bilibili.ai_generated": "✅ 标题和标签已生成",
     "commentary.bilibili.ai_parse_failed": "⚠️ 无法解析 AI 返回的内容，请手动填写",
     "commentary.bilibili.ai_failed": "❌ AI 生成失败：{error}",
-    "commentary.bilibili.no_narration": "ℹ️ 未找到解说文案，无法生成标题和标签"
+    "commentary.bilibili.no_narration": "ℹ️ 未找到解说文案，无法生成标题和标签",
+    "commentary.bilibili.collection_title": "📁 合集",
+    "commentary.bilibili.fetch_collections": "📥 获取我的合集",
+    "commentary.bilibili.fetching_collections": "正在获取合集列表...",
+    "commentary.bilibili.no_collections": "未找到任何合集，请先在 Bilibili 创建合集",
+    "commentary.bilibili.collections_fetched": "✅ 已获取 {count} 个合集",
+    "commentary.bilibili.fetch_collections_failed": "❌ 获取合集失败：{error}",
+    "commentary.bilibili.select_collection": "选择要上传到的合集",
+    "commentary.bilibili.collection_name": "合集名称",
+    "commentary.bilibili.collection_name_placeholder": "输入要上传到的合集名称",
+    "commentary.bilibili.collection_name_help": "输入您在 Bilibili 已创建的合集名称，系统会自动匹配",
+    "commentary.bilibili.resolve_collection": "🔍 查找并匹配合集",
+    "commentary.bilibili.resolving_collection": "正在查找合集...",
+    "commentary.bilibili.collection_resolved": "✅ 已匹配到合集 \"{name}\" (ID: {id})",
+    "commentary.bilibili.collection_not_found": "⚠️ 未找到匹配的合集，请检查名称或先在 Bilibili 创建合集"
   }
 }

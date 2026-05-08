@@ -556,11 +556,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         progress_segments: List[str],
         cfg: CommentaryConfig,
         task_dir: str,
-    ) -> Path:
+    ) -> Tuple[Path, Optional[Path]]:
         """
         Full commentary composition pipeline.
 
-        Returns path to final video.
+        Returns (path to final video, path to cover background image).
         """
         paths = CompositorPaths.create(task_dir)
         content_start = cfg.content_start or 0.0
@@ -636,5 +636,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             output_path=paths.final_path,
         )
 
+        # Determine actual cover path used (add_cover_intro may fallback)
+        actual_cover_path = cover_bg_path
+        if actual_cover_path is None or not actual_cover_path.is_file():
+            actual_cover_path = paths.work_dir / "cover_bg_fallback.jpg"
+        if not actual_cover_path.is_file():
+            actual_cover_path = None
+
         logger.success(f"✅ Commentary video complete: {final}")
-        return final
+        return final, actual_cover_path

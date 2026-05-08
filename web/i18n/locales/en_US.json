@@ -605,6 +605,20 @@
     "commentary.bilibili.ai_generated": "✅ Title and tags generated",
     "commentary.bilibili.ai_parse_failed": "⚠️ Failed to parse AI response, please fill in manually",
     "commentary.bilibili.ai_failed": "❌ AI generation failed: {error}",
-    "commentary.bilibili.no_narration": "ℹ️ No narration found, cannot generate title and tags"
+    "commentary.bilibili.no_narration": "ℹ️ No narration found, cannot generate title and tags",
+    "commentary.bilibili.collection_title": "📁 Collection",
+    "commentary.bilibili.fetch_collections": "📥 Fetch My Collections",
+    "commentary.bilibili.fetching_collections": "Fetching collections...",
+    "commentary.bilibili.no_collections": "No collections found. Please create a collection on Bilibili first.",
+    "commentary.bilibili.collections_fetched": "✅ Fetched {count} collections",
+    "commentary.bilibili.fetch_collections_failed": "❌ Failed to fetch collections: {error}",
+    "commentary.bilibili.select_collection": "Select collection to upload to",
+    "commentary.bilibili.collection_name": "Collection Name",
+    "commentary.bilibili.collection_name_placeholder": "Enter the collection name to upload to",
+    "commentary.bilibili.collection_name_help": "Enter the name of a collection you have created on Bilibili",
+    "commentary.bilibili.resolve_collection": "🔍 Find and match collection",
+    "commentary.bilibili.resolving_collection": "Resolving collection...",
+    "commentary.bilibili.collection_resolved": "✅ Matched collection \"{name}\" (ID: {id})",
+    "commentary.bilibili.collection_not_found": "⚠️ No matching collection found. Please check the name or create it on Bilibili first."
   }
 }

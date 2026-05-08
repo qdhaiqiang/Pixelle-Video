@@ -425,6 +425,47 @@ class CommentaryPipelineUI(PipelineUI):
                 tts_rate = "+0%"
 
             # ================================================================
+            # TTS Preview
+            # ================================================================
+            with st.expander(tr("tts.preview_title"), expanded=False):
+                preview_text = st.text_input(
+                    tr("tts.preview_text"),
+                    value="大家好，这是一段测试语音。",
+                    placeholder=tr("tts.preview_text_placeholder"),
+                    key="commentary_preview_text"
+                )
+
+                if st.button(tr("tts.preview_button"), key="commentary_preview_tts", use_container_width=True):
+                    with st.spinner(tr("tts.previewing")):
+                        try:
+                            tts_params = {
+                                "text": preview_text,
+                                "inference_mode": tts_mode
+                            }
+                            if tts_mode == "local":
+                                tts_params["voice"] = selected_voice
+                                tts_params["speed"] = tts_speed
+                            else:
+                                tts_params["workflow"] = tts_workflow_key
+                                if ref_audio_path:
+                                    tts_params["ref_audio"] = str(ref_audio_path)
+
+                            audio_path = run_async(pixelle_video.tts(**tts_params))
+
+                            if audio_path:
+                                st.success(tr("tts.preview_success"))
+                                if os.path.exists(audio_path):
+                                    st.audio(audio_path, format="audio/mp3")
+                                elif audio_path.startswith("http"):
+                                    st.audio(audio_path)
+                                st.caption(f"📁 {audio_path}")
+                            else:
+                                st.error("Failed to generate preview audio")
+                        except Exception as e:
+                            st.error(tr("tts.preview_failed", error=str(e)))
+                            logger.exception(e)
+
+            # ================================================================
             # Jianying Material Export
             # ================================================================
             st.markdown("---")
@@ -454,6 +495,8 @@ class CommentaryPipelineUI(PipelineUI):
             bili_tid = 228
             bili_copyright = 1
             bili_cookie_path = ""
+            bili_collection_id = None
+            bili_collection_name = ""
 
             if bili_upload:
                 # ── Step 1: Cookie guide (toggleable popup-like) ──
@@ -518,6 +561,7 @@ class CommentaryPipelineUI(PipelineUI):
                     tr("commentary.bilibili.video_title"),
                     value=default_title,
                     placeholder=tr("commentary.bilibili.video_title_placeholder"),
+                    help="留空将使用AI根据解说内容自动生成的标题",
                     key="commentary_bili_title"
                 )
                 bili_extra_tags = st.text_input(
@@ -553,46 +597,78 @@ class CommentaryPipelineUI(PipelineUI):
                     key="commentary_bili_copyright"
                 )
 
-            # ================================================================
-            # TTS Preview
-            # ================================================================
-            with st.expander(tr("tts.preview_title"), expanded=False):
-                preview_text = st.text_input(
-                    tr("tts.preview_text"),
-                    value="大家好，这是一段测试语音。",
-                    placeholder=tr("tts.preview_text_placeholder"),
-                    key="commentary_preview_text"
+                # ── Collection (合集) ──
+                st.markdown("---")
+                st.markdown(f"**{tr('commentary.bilibili.collection_title')}**")
+
+                collection_mode = st.radio(
+                    "合集选择方式",
+                    options=["manual", "fetch"],
+                    format_func=lambda x: "手动输入名称" if x == "manual" else "从我的合集列表选择",
+                    index=0,
+                    horizontal=True,
+                    key="commentary_bili_collection_mode"
                 )
 
-                if st.button(tr("tts.preview_button"), key="commentary_preview_tts", use_container_width=True):
-                    with st.spinner(tr("tts.previewing")):
-                        try:
-                            tts_params = {
-                                "text": preview_text,
-                                "inference_mode": tts_mode
-                            }
-                            if tts_mode == "local":
-                                tts_params["voice"] = selected_voice
-                                tts_params["speed"] = tts_speed
-                            else:
-                                tts_params["workflow"] = tts_workflow_key
-                                if ref_audio_path:
-                                    tts_params["ref_audio"] = str(ref_audio_path)
+                if collection_mode == "fetch":
+                    if st.button(tr("commentary.bilibili.fetch_collections"), key="bili_fetch_collections"):
+                        if not bili_cookie_path:
+                            st.warning("请先上传或填写 Cookie 文件")
+                        elif not Path(bili_cookie_path).exists():
+                            st.warning("Cookie 文件不存在")
+                        else:
+                            with st.spinner(tr("commentary.bilibili.fetching_collections")):
+                                try:
+                                    from pixelle_video.services.bilibili_uploader import BilibiliUploader
+                                    uploader = BilibiliUploader(cookie_path=bili_cookie_path)
+                                    collections = uploader.get_collections()
+                                    st.session_state["commentary_bili_collections"] = collections
+                                    if not collections:
+                                        st.info(tr("commentary.bilibili.no_collections"))
+                                    else:
+                                        st.success(tr("commentary.bilibili.collections_fetched", count=len(collections)))
+                                except Exception as e:
+                                    logger.exception(e)
+                                    st.error(tr("commentary.bilibili.fetch_collections_failed", error=str(e)))
 
-                            audio_path = run_async(pixelle_video.tts(**tts_params))
-
-                            if audio_path:
-                                st.success(tr("tts.preview_success"))
-                                if os.path.exists(audio_path):
-                                    st.audio(audio_path, format="audio/mp3")
-                                elif audio_path.startswith("http"):
-                                    st.audio(audio_path)
-                                st.caption(f"📁 {audio_path}")
-                            else:
-                                st.error("Failed to generate preview audio")
-                        except Exception as e:
-                            st.error(tr("tts.preview_failed", error=str(e)))
-                            logger.exception(e)
+                    collections = st.session_state.get("commentary_bili_collections", [])
+                    if collections:
+                        collection_options = [f"{c['name']} (ID: {c['season_id']})" for c in collections]
+                        collection_values = [c["season_id"] for c in collections]
+                        selected_collection = st.selectbox(
+                            tr("commentary.bilibili.select_collection"),
+                            collection_options,
+                            key="commentary_bili_collection_select"
+                        )
+                        bili_collection_id = collection_values[collection_options.index(selected_collection)]
+                    else:
+                        bili_collection_id = None
+                else:
+                    bili_collection_name = st.text_input(
+                        tr("commentary.bilibili.collection_name"),
+                        placeholder=tr("commentary.bilibili.collection_name_placeholder"),
+                        help=tr("commentary.bilibili.collection_name_help"),
+                        key="commentary_bili_collection_name"
+                    )
+                    if bili_collection_name:
+                        # Try to resolve name to season_id when cookie is available
+                        if bili_cookie_path and Path(bili_cookie_path).exists():
+                            if st.button(tr("commentary.bilibili.resolve_collection"), key="bili_resolve_collection"):
+                                with st.spinner(tr("commentary.bilibili.resolving_collection")):
+                                    try:
+                                        from pixelle_video.services.bilibili_uploader import BilibiliUploader
+                                        uploader = BilibiliUploader(cookie_path=bili_cookie_path)
+                                        collections = uploader.get_collections()
+                                        matched = next((c for c in collections if c["name"] == bili_collection_name or bili_collection_name in c["name"]), None)
+                                        if matched:
+                                            st.session_state["commentary_bili_collection_id"] = matched["season_id"]
+                                            st.success(tr("commentary.bilibili.collection_resolved", name=matched["name"], id=matched["season_id"]))
+                                        else:
+                                            st.warning(tr("commentary.bilibili.collection_not_found"))
+                                    except Exception as e:
+                                        logger.exception(e)
+                                        st.error(tr("commentary.bilibili.fetch_collections_failed", error=str(e)))
+                        bili_collection_id = st.session_state.get("commentary_bili_collection_id")
 
         return {
             "tts_inference_mode": tts_mode,
@@ -608,6 +684,8 @@ class CommentaryPipelineUI(PipelineUI):
             "bili_extra_tags": bili_extra_tags,
             "bili_tid": bili_tid,
             "bili_copyright": bili_copyright,
+            "bili_collection_id": bili_collection_id,
+            "bili_collection_name": bili_collection_name,
         }
 
     def _render_output_preview(self, pixelle_video: Any, video_params: dict):
@@ -762,13 +840,15 @@ class CommentaryPipelineUI(PipelineUI):
                         elif not Path(cookie_path).exists():
                             st.error(tr("commentary.bilibili.upload_failed", error=f"Cookie file not found: {cookie_path}"))
                         else:
-                            # ── AI Generate Title & Tags ──
-                            has_ai_meta = bool(
-                                st.session_state.get("commentary_bili_title_value", "")
-                                or st.session_state.get("commentary_bili_tags_value", "")
-                            )
-                            if not has_ai_meta and not video_params.get("bili_video_title", "") and not video_params.get("bili_extra_tags", ""):
-                                if st.button(tr("commentary.bilibili.ai_generate"), use_container_width=True, key="bili_ai_generate_btn"):
+                            # ── AI Auto Generate Title & Tags ──
+                            # Only generate if user hasn't provided manual values
+                            has_manual_title = bool(video_params.get("bili_video_title", "").strip())
+                            has_manual_tags = bool(video_params.get("bili_extra_tags", "").strip())
+                            has_ai_title = bool(st.session_state.get("commentary_bili_title_value", "").strip())
+                            has_ai_tags = bool(st.session_state.get("commentary_bili_tags_value", "").strip())
+
+                            if not has_manual_title or not has_manual_tags:
+                                if not has_ai_title or not has_ai_tags:
                                     with st.spinner(tr("commentary.bilibili.ai_generating")):
                                         try:
                                             narrations = "\n".join(
@@ -795,7 +875,6 @@ class CommentaryPipelineUI(PipelineUI):
                                                         st.session_state["commentary_bili_title_value"] = data.get("title", "")
                                                         st.session_state["commentary_bili_tags_value"] = data.get("tags", "")
                                                         st.success(tr("commentary.bilibili.ai_generated"))
-                                                        safe_rerun()
                                                     else:
                                                         st.warning(tr("commentary.bilibili.ai_parse_failed"))
                                                 except Exception as e:
@@ -807,6 +886,29 @@ class CommentaryPipelineUI(PipelineUI):
                                             logger.exception(e)
                                             st.error(tr("commentary.bilibili.ai_failed", error=str(e)))
 
+                            # Determine final title and tags
+                            ai_title = st.session_state.get("commentary_bili_title_value", "")
+                            ai_tags = st.session_state.get("commentary_bili_tags_value", "")
+                            final_title = video_params.get("bili_video_title", "").strip() or ai_title or ""
+                            final_tags = video_params.get("bili_extra_tags", "").strip() or ai_tags or ""
+
+                            # Get cover paths
+                            cover_paths = getattr(result, "cover_paths", []) or []
+
+                            # Resolve collection name to ID if needed
+                            collection_id = video_params.get("bili_collection_id")
+                            collection_name = video_params.get("bili_collection_name", "")
+                            if collection_name and not collection_id:
+                                try:
+                                    from pixelle_video.services.bilibili_uploader import BilibiliUploader
+                                    uploader = BilibiliUploader(cookie_path=cookie_path)
+                                    collections = uploader.get_collections()
+                                    matched = next((c for c in collections if c["name"] == collection_name or collection_name in c["name"]), None)
+                                    if matched:
+                                        collection_id = matched["season_id"]
+                                except Exception as e:
+                                    logger.warning(f"Failed to resolve collection name: {e}")
+
                             for idx, vp in enumerate(all_paths):
                                 if not os.path.exists(vp):
                                     continue
@@ -816,10 +918,11 @@ class CommentaryPipelineUI(PipelineUI):
                                         from pixelle_video.services.bilibili_uploader import BilibiliUploader
                                         uploader = BilibiliUploader(cookie_path=cookie_path)
 
-                                        title = video_params.get("bili_video_title", "") or Path(vp).stem
-                                        extra_tags = video_params.get("bili_extra_tags", "")
+                                        title = final_title or Path(vp).stem
+                                        extra_tags = final_tags
                                         tid = video_params.get("bili_tid", 228)
                                         copyright_type = video_params.get("bili_copyright", 1)
+                                        cover = cover_paths[idx] if idx < len(cover_paths) else None
 
                                         bvid = uploader.upload(
                                             video_path=vp,
@@ -827,6 +930,8 @@ class CommentaryPipelineUI(PipelineUI):
                                             extra_tags=extra_tags,
                                             tid=tid,
                                             copyright=copyright_type,
+                                            cover=cover,
+                                            collection_id=collection_id,
                                         )
                                         st.success(tr("commentary.bilibili.upload_success", bvid=bvid))
                                     except Exception as e:

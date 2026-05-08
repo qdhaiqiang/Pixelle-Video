@@ -170,6 +170,7 @@ class CommentaryPipeline(BasePipeline):
 
         # ====== 5. Generate scripts + compose videos for each segment ======
         segment_videos: List[Path] = []
+        cover_paths: List[str] = []
         all_scripts: List[CommentaryScript] = []
         compositor = CommentaryCompositor(self.core)
 
@@ -247,7 +248,7 @@ class CommentaryPipeline(BasePipeline):
             seg_task_dir = f"{task_dir}/segment_{seg_num:02d}"
             Path(seg_task_dir).mkdir(parents=True, exist_ok=True)
 
-            seg_video = await compositor.compose_commentary(
+            seg_video, seg_cover_path = await compositor.compose_commentary(
                 video_path=video_path,
                 chunks=script.chunks,
                 cover=script.cover,
@@ -256,6 +257,8 @@ class CommentaryPipeline(BasePipeline):
                 task_dir=seg_task_dir,
             )
             segment_videos.append(seg_video)
+            if seg_cover_path:
+                cover_paths.append(str(seg_cover_path))
             logger.info(f"✅ Segment {seg_num} video complete: {seg_video}")
 
         # ====== 6. Save segments as independent files ======
@@ -331,6 +334,7 @@ class CommentaryPipeline(BasePipeline):
             duration=total_duration,
             file_size=video_size,
             additional_video_paths=all_video_paths[1:] if len(all_video_paths) > 1 else [],
+            cover_paths=cover_paths,
         )
 
         logger.success(f"🎬 Commentary pipeline complete: {final_video_path}")

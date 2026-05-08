@@ -17,11 +17,13 @@ Wraps biliup-rs CLI for uploading videos to Bilibili.
 Requires biliup binary in PATH and a valid cookie file.
 """
 
+import json
 import re
 import subprocess
 import shlex
+import urllib.request
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from loguru import logger
 
@@ -90,6 +92,7 @@ class BilibiliUploader:
         dtime: Optional[int] = None,
         line: str = "bda2",
         limit: int = 3,
+        collection_id: Optional[int] = None,
     ) -> str:
         """
         Upload a video to Bilibili.
@@ -169,6 +172,8 @@ class BilibiliUploader:
             cmd.extend(["--dynamic", dynamic])
         if dtime:
             cmd.extend(["--dtime", str(int(dtime))])
+        if collection_id is not None:
+            cmd.extend(["--extra-fields", json.dumps({"season_id": collection_id})])
 
         logger.info(f"📤 Uploading to Bilibili: {upload_title}")
         result = self._run(cmd, timeout=600)
@@ -186,6 +191,49 @@ class BilibiliUploader:
         # If no bvid found, return a placeholder
         logger.info("✅ Bilibili upload completed (bvid not found in output)")
         return "uploaded"
+
+    def get_collections(self) -> List[Dict[str, int]]:
+        """
+        Fetch user's Bilibili collections (seasons) list.
+
+        Returns:
+            List of dicts with 'season_id' and 'name' keys.
+        """
+        try:
+            cookie_data = json.loads(Path(self.cookie_path).read_text(encoding="utf-8"))
+            cookies = cookie_data.get("cookie_info", {}).get("cookies", [])
+            sessdata = next((c["value"] for c in cookies if c.get("name") == "SESSDATA"), None)
+            mid = next((c["value"] for c in cookies if c.get("name") == "DedeUserID"), None)
+
+            if not sessdata or not mid:
+                logger.warning("SESSDATA or DedeUserID not found in cookie")
+                return []
+
+            url = f"https://api.bilibili.com/x/polymer/web-space/seasons_series_list?mid={mid}&page_num=1&page_size=50"
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                "Referer": f"https://space.bilibili.com/{mid}",
+                "Cookie": f"SESSDATA={sessdata}",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+
+            if data.get("code") != 0:
+                logger.warning(f"Failed to fetch collections: {data.get('message')}")
+                return []
+
+            seasons = data.get("data", {}).get("items_lists", {}).get("seasons_list", [])
+            collections = []
+            for s in seasons:
+                meta = s.get("meta", {})
+                season_id = meta.get("season_id")
+                name = meta.get("name")
+                if season_id and name:
+                    collections.append({"season_id": season_id, "name": name})
+            return collections
+        except Exception as e:
+            logger.warning(f"Failed to fetch collections: {e}")
+            return []
 
     @staticmethod
     def _extract_bvid(text: str) -> Optional[str]:
