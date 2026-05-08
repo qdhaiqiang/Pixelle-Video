@@ -456,10 +456,20 @@ class CommentaryPipelineUI(PipelineUI):
             bili_cookie_path = ""
 
             if bili_upload:
-                st.markdown(f"**{tr('commentary.bilibili.cookie_step1')}**")
-                st.caption(tr("commentary.bilibili.cookie_step1_desc"))
+                # ── Step 1: Guide user to generate cookie locally ──
+                with st.expander(tr("commentary.bilibili.cookie_step1"), expanded=True):
+                    st.markdown(tr("commentary.bilibili.cookie_step1_desc"))
+                    st.markdown(f"**macOS (Intel):**")
+                    st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-macos.tar.xz\ntar xf biliupR-v0.2.4-x86_64-macos.tar.xz\n./biliupR-v0.2.4-x86_64-macos/biliup -u ./cookies.json login", language="bash")
+                    st.markdown(f"**macOS (Apple Silicon M1/M2/M3):**")
+                    st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-aarch64-macos.tar.xz\ntar xf biliupR-v0.2.4-aarch64-macos.tar.xz\n./biliupR-v0.2.4-aarch64-macos/biliup -u ./cookies.json login", language="bash")
+                    st.markdown(f"**Linux:**")
+                    st.code("curl -LO https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-linux.tar.xz\ntar xf biliupR-v0.2.4-x86_64-linux.tar.xz\n./biliupR-v0.2.4-x86_64-linux/biliup -u ./cookies.json login", language="bash")
+                    st.markdown(f"**Windows:** 下载 [biliupR-v0.2.4-x86_64-windows.zip](https://github.com/biliup/biliup-rs/releases/download/v0.2.4/biliupR-v0.2.4-x86_64-windows.zip) 并解压，然后在 PowerShell 运行：")
+                    st.code(r".\biliup.exe -u .\cookies.json login", language="powershell")
+                    st.info(tr("commentary.bilibili.cookie_step1_tip"))
 
-                # Cookie file uploader
+                # ── Step 2: Upload cookie file ──
                 st.markdown(f"**{tr('commentary.bilibili.cookie_step2')}**")
                 cookie_file = st.file_uploader(
                     tr("commentary.bilibili.cookie_upload"),

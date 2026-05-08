@@ -589,13 +589,14 @@
     "commentary.jianying.exported": "✅ Jianying material package exported",
     "commentary.jianying.import_hint": "💡 Open Jianying → Click Import → Select the corresponding folder in the material package",
     "settings.bilibili.hint": "Cookie path is configured per-user in the generation page, supporting multiple accounts",
-    "commentary.bilibili.cookie_step1": "Step 1: Get Cookie on your computer",
-    "commentary.bilibili.cookie_step1_desc": "Run in your local terminal (biliup will auto-install):\n1. Download biliup: https://github.com/biliup/biliup-rs/releases\n2. Run: biliup -u ./cookies.json login\n3. Complete login as prompted to generate cookies.json",
     "commentary.bilibili.cookie_step2": "Step 2: Upload Cookie File",
     "commentary.bilibili.cookie_upload": "Upload cookies.json",
     "commentary.bilibili.cookie_upload_help": "Upload cookies.json generated on your computer. Server will use it to upload videos to your account.",
     "commentary.bilibili.cookie_uploaded": "✅ Cookie uploaded: {path}",
     "commentary.bilibili.cookie_path_local": "Or enter server-local path",
-    "commentary.bilibili.cookie_path_local_help": "If cookie file is already on the server, enter its path directly"
+    "commentary.bilibili.cookie_path_local_help": "If cookie file is already on the server, enter its path directly",
+    "commentary.bilibili.cookie_step1": "Step 1: Get Cookie on your computer (expand for details)",
+    "commentary.bilibili.cookie_step1_desc": "Follow these steps on your local computer terminal:\n\n1. **Download biliup** (matching your OS — click the code block above to copy)\n2. **Run login command**: Follow prompts to enter phone number and verification code\n3. **Get cookies.json**: After successful login,  will be generated in the current directory\n\nThen proceed to Step 2 to upload the file.",
+    "commentary.bilibili.cookie_step1_tip": "💡 Tip: If you are on the server machine directly, skip upload and enter the cookie path below"
   }
 }
