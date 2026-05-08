@@ -596,9 +596,11 @@
     "commentary.jianying.exported": "✅ 剪映素材包已导出",
     "commentary.jianying.import_hint": "💡 打开剪映 → 点击「导入」→ 选择素材包目录下的对应文件夹即可",
     "settings.bilibili.qr_login": "📱 扫码登录",
-    "settings.bilibili.qr_login_running": "正在启动 biliup 扫码登录，请查看终端中的二维码...",
+    "settings.bilibili.qr_login_running": "正在启动 biliup 扫码登录，请查看运行 Streamlit 的终端窗口...",
     "settings.bilibili.qr_login_complete": "✅ 扫码登录流程已完成",
-    "settings.bilibili.qr_login_hint": "如果终端显示了二维码，请用手机 B 站 APP 扫描。扫描完成后 cookie 会自动保存到上方路径。",
-    "settings.bilibili.qr_login_manual": "⚠️ 请查看上方输出信息，或直接在终端运行：biliup -u <cookie路径> login"
+    "settings.bilibili.qr_login_hint": "请查看运行 Streamlit 的终端窗口，扫描其中显示的二维码。扫描完成后 cookie 会自动保存。",
+    "settings.bilibili.qr_login_manual": "⚠️ 请查看上方输出信息，或直接在终端运行：biliup -u <cookie路径> login",
+    "settings.bilibili.qr_login_launched": "✅ 扫码登录进程已启动",
+    "settings.bilibili.qr_login_manual_cmd": "如果终端没有显示二维码，请手动在终端运行以下命令："
   }
 }

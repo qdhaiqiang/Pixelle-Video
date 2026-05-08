@@ -376,27 +376,37 @@ def render_advanced_settings():
                         from pixelle_video.services.biliup_installer import ensure_biliup
                         biliup_path = ensure_biliup()
                         import subprocess
+                        import sys
 
                         # Ensure parent dir exists
                         Path(bili_cookie_path).parent.mkdir(parents=True, exist_ok=True)
 
+                        # Start biliup login in background with inherited stdout/stderr
+                        # so QR code renders in the terminal where Streamlit was started
                         st.info(tr("settings.bilibili.qr_login_running"))
-                        # Run login in background (non-blocking display)
-                        result = subprocess.run(
-                            [biliup_path, "-u", bili_cookie_path, "login"],
-                            capture_output=True, text=True, timeout=120
-                        )
-                        output = result.stdout + result.stderr
-                        # Show last few lines (may contain QR url or success msg)
-                        lines = [l for l in output.splitlines() if l.strip()]
-                        display_lines = lines[-10:] if len(lines) > 10 else lines
-                        st.code("\n".join(display_lines), language="text")
+                        cmd = [biliup_path, "-u", bili_cookie_path, "login"]
+                        st.code(" ".join(cmd), language="bash")
 
-                        if result.returncode == 0 or "login" in output.lower() or "扫码" in output:
-                            st.success(tr("settings.bilibili.qr_login_complete"))
-                            st.info(tr("settings.bilibili.qr_login_hint"))
-                        else:
-                            st.warning(tr("settings.bilibili.qr_login_manual"))
+                        # Use Popen with inherited stdout/stderr for TTY access
+                        # start_new_session=False keeps it in the same process group
+                        proc = subprocess.Popen(
+                            cmd,
+                            stdout=None,      # inherit parent stdout (terminal)
+                            stderr=None,      # inherit parent stderr
+                            stdin=subprocess.DEVNULL,
+                        )
+
+                        st.success(tr("settings.bilibili.qr_login_launched"))
+                        st.info(tr("settings.bilibili.qr_login_hint"))
+                        st.markdown(
+                            f"**{tr('settings.bilibili.qr_login_manual_cmd')}**"
+                        )
+                        st.code(" ".join(cmd), language="bash")
+
+                        # Store proc in session state so it can be checked later
+                        if "biliup_login_proc" not in st.session_state:
+                            st.session_state.biliup_login_proc = {}
+                        st.session_state.biliup_login_proc[biliup_path] = proc
                     except Exception as e:
                         st.error(tr("settings.bilibili.login_failed", error=str(e)))
             with login_col2:
