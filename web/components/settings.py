@@ -330,105 +330,30 @@ def render_advanced_settings():
                     )
         
         # ====================================================================
-        # Bilibili Upload Settings
+        # Bilibili Upload Defaults
         # ====================================================================
         st.markdown("---")
         with st.container(border=True):
             st.markdown(f"**{tr('settings.bilibili.title')}**")
+            st.caption(tr("settings.bilibili.hint"))
 
             bilibili_config = config_manager.get_bilibili_config()
 
-            bili_col1, bili_col2 = st.columns([1, 1])
-            with bili_col1:
-                bili_enabled = st.checkbox(
-                    tr("settings.bilibili.enable"),
-                    value=bilibili_config.get("enabled", False),
-                    key="bilibili_enabled_input"
-                )
-                bili_cookie_path = st.text_input(
-                    tr("settings.bilibili.cookie_path"),
-                    value=bilibili_config.get("cookie_path", ""),
-                    help=tr("settings.bilibili.cookie_path_help"),
-                    key="bilibili_cookie_path_input"
-                )
-                st.caption(tr("settings.bilibili.login_hint"))
-            with bili_col2:
-                bili_tid = st.number_input(
-                    tr("settings.bilibili.default_tid"),
-                    min_value=1,
-                    max_value=999,
-                    value=bilibili_config.get("default_tid", 228),
-                    key="bilibili_tid_input"
-                )
-                bili_copyright = st.radio(
-                    tr("settings.bilibili.default_copyright"),
-                    options=[1, 2],
-                    format_func=lambda x: tr("settings.bilibili.copyright_original") if x == 1 else tr("settings.bilibili.copyright_reprint"),
-                    index=0 if bilibili_config.get("default_copyright", 1) == 1 else 1,
-                    horizontal=True,
-                    key="bilibili_copyright_input"
-                )
-
-            login_col1, login_col2 = st.columns(2)
-            with login_col1:
-                if st.button(tr("settings.bilibili.qr_login"), use_container_width=True, key="bilibili_qr_login_btn"):
-                    try:
-                        from pixelle_video.services.biliup_installer import ensure_biliup
-                        biliup_path = ensure_biliup()
-                        import subprocess
-                        import sys
-
-                        # Ensure parent dir exists
-                        Path(bili_cookie_path).parent.mkdir(parents=True, exist_ok=True)
-
-                        # Start biliup login in background with inherited stdout/stderr
-                        # so QR code renders in the terminal where Streamlit was started
-                        st.info(tr("settings.bilibili.qr_login_running"))
-                        cmd = [biliup_path, "-u", bili_cookie_path, "login"]
-                        st.code(" ".join(cmd), language="bash")
-
-                        # Use Popen with inherited stdout/stderr for TTY access
-                        # start_new_session=False keeps it in the same process group
-                        proc = subprocess.Popen(
-                            cmd,
-                            stdout=None,      # inherit parent stdout (terminal)
-                            stderr=None,      # inherit parent stderr
-                            stdin=subprocess.DEVNULL,
-                        )
-
-                        st.success(tr("settings.bilibili.qr_login_launched"))
-                        st.info(tr("settings.bilibili.qr_login_hint"))
-                        st.markdown(
-                            f"**{tr('settings.bilibili.qr_login_manual_cmd')}**"
-                        )
-                        st.code(" ".join(cmd), language="bash")
-
-                        # Store proc in session state so it can be checked later
-                        if "biliup_login_proc" not in st.session_state:
-                            st.session_state.biliup_login_proc = {}
-                        st.session_state.biliup_login_proc[biliup_path] = proc
-                    except Exception as e:
-                        st.error(tr("settings.bilibili.login_failed", error=str(e)))
-            with login_col2:
-                if st.button(tr("settings.bilibili.test_login"), use_container_width=True, key="bilibili_test_login_btn"):
-                    if bili_cookie_path:
-                        try:
-                            from pixelle_video.services.biliup_installer import ensure_biliup
-                            biliup_path = ensure_biliup()
-                            import subprocess
-                            result = subprocess.run(
-                                [biliup_path, "-u", bili_cookie_path, "upload", "--help"],
-                                capture_output=True, text=True, timeout=10
-                            )
-                            if result.returncode == 0:
-                                st.success(tr("settings.bilibili.login_success"))
-                            else:
-                                err = result.stderr or "Cookie file may be invalid"
-                                st.error(tr("settings.bilibili.login_failed", error=err))
-                        except Exception as e:
-                            st.error(tr("settings.bilibili.login_failed", error=str(e)))
-                    else:
-                        st.warning(tr("error.missing_field", field=tr("settings.bilibili.cookie_path")))
+            bili_tid = st.number_input(
+                tr("settings.bilibili.default_tid"),
+                min_value=1,
+                max_value=999,
+                value=bilibili_config.get("default_tid", 228),
+                key="bilibili_tid_input"
+            )
+            bili_copyright = st.radio(
+                tr("settings.bilibili.default_copyright"),
+                options=[1, 2],
+                format_func=lambda x: tr("settings.bilibili.copyright_original") if x == 1 else tr("settings.bilibili.copyright_reprint"),
+                index=0 if bilibili_config.get("default_copyright", 1) == 1 else 1,
+                horizontal=True,
+                key="bilibili_copyright_input"
+            )
 
         # ====================================================================
         # Action Buttons (full width at bottom)
@@ -460,10 +385,8 @@ def render_advanced_settings():
                         dashscope_workspace=dashscope_workspace,
                     )
 
-                    # Save Bilibili configuration
+                    # Save Bilibili default configuration
                     config_manager.set_bilibili_config(
-                        enabled=bili_enabled,
-                        cookie_path=bili_cookie_path if bili_cookie_path else "",
                         default_tid=int(bili_tid),
                         default_copyright=int(bili_copyright),
                     )

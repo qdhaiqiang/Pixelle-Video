@@ -453,8 +453,23 @@ class CommentaryPipelineUI(PipelineUI):
             bili_extra_tags = ""
             bili_tid = 228
             bili_copyright = 1
+            bili_cookie_path = ""
 
             if bili_upload:
+                # Cookie path (per-user)
+                bili_cookie_path = st.text_input(
+                    tr("commentary.bilibili.cookie_path"),
+                    value=st.session_state.get("bili_cookie_path", ""),
+                    placeholder="/path/to/cookies.json",
+                    help=tr("commentary.bilibili.cookie_path_help"),
+                    key="commentary_bili_cookie_path"
+                )
+                # Persist to session state
+                if bili_cookie_path:
+                    st.session_state["bili_cookie_path"] = bili_cookie_path
+
+                st.caption(tr("commentary.bilibili.cookie_hint"))
+
                 bili_video_title = st.text_input(
                     tr("commentary.bilibili.video_title"),
                     placeholder=tr("commentary.bilibili.video_title_placeholder"),
@@ -542,6 +557,7 @@ class CommentaryPipelineUI(PipelineUI):
             "ref_audio": str(ref_audio_path) if ref_audio_path else None,
             "export_jianying_materials": jianying_export,
             "bili_upload": bili_upload,
+            "bili_cookie_path": bili_cookie_path,
             "bili_video_title": bili_video_title,
             "bili_extra_tags": bili_extra_tags,
             "bili_tid": bili_tid,
@@ -690,11 +706,12 @@ class CommentaryPipelineUI(PipelineUI):
                         st.markdown("---")
                         st.markdown(f"**{tr('commentary.bilibili.title')}**")
 
-                        bili_config = config_manager.get_bilibili_config()
-                        cookie_path = bili_config.get("cookie_path", "")
+                        cookie_path = video_params.get("bili_cookie_path", "")
 
                         if not cookie_path:
-                            st.error(tr("commentary.bilibili.upload_failed", error="Bilibili cookie path not configured"))
+                            st.error(tr("commentary.bilibili.upload_failed", error="Bilibili cookie path not provided"))
+                        elif not Path(cookie_path).exists():
+                            st.error(tr("commentary.bilibili.upload_failed", error=f"Cookie file not found: {cookie_path}"))
                         else:
                             for idx, vp in enumerate(all_paths):
                                 if not os.path.exists(vp):
