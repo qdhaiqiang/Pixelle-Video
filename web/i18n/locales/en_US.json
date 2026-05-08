@@ -589,6 +589,11 @@
     "commentary.bilibili.copyright_reprint": "Reprint",
     "commentary.bilibili.uploading": "Uploading to Bilibili...",
     "commentary.bilibili.upload_success": "✅ Upload success! Bvid: {bvid}",
-    "commentary.bilibili.upload_failed": "❌ Upload failed: {error}"
+    "commentary.bilibili.upload_failed": "❌ Upload failed: {error}",
+    "commentary.jianying.title": "🎞️ Jianying Material Export",
+    "commentary.jianying.enable": "Export Jianying material package (video clips / audio / subtitles / scripts)",
+    "commentary.jianying.help": "After generation, automatically organize video clips, voiceover audio, subtitle files, cover assets, and narration scripts into the materials/ directory for easy import into Jianying for secondary editing. Large files use symlinks to save disk space.",
+    "commentary.jianying.exported": "✅ Jianying material package exported",
+    "commentary.jianying.import_hint": "💡 Open Jianying → Click Import → Select the corresponding folder in the material package"
   }
 }

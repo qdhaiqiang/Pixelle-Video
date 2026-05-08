@@ -425,6 +425,18 @@ class CommentaryPipelineUI(PipelineUI):
                 tts_rate = "+0%"
 
             # ================================================================
+            # Jianying Material Export
+            # ================================================================
+            st.markdown("---")
+            st.markdown(f"**{tr('commentary.jianying.title')}**")
+            jianying_export = st.checkbox(
+                tr("commentary.jianying.enable"),
+                value=False,
+                help=tr("commentary.jianying.help"),
+                key="commentary_jianying_export"
+            )
+
+            # ================================================================
             # Bilibili Upload Settings
             # ================================================================
             st.markdown("---")
@@ -528,6 +540,7 @@ class CommentaryPipelineUI(PipelineUI):
             "tts_rate": tts_rate if tts_mode == "local" else "+0%",
             "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
             "ref_audio": str(ref_audio_path) if ref_audio_path else None,
+            "export_jianying_materials": jianying_export,
             "bili_upload": bili_upload,
             "bili_video_title": bili_video_title,
             "bili_extra_tags": bili_extra_tags,
@@ -604,6 +617,7 @@ class CommentaryPipelineUI(PipelineUI):
                             "mask_subtitles": video_params.get("mask_subtitles", False),
                             "keep_original_audio": video_params.get("keep_original_audio", True),
                             "original_audio_volume": video_params.get("original_audio_volume", 0.2),
+                            "export_jianying_materials": video_params.get("export_jianying_materials", False),
                         }
 
                         def progress_callback(event):
@@ -660,6 +674,14 @@ class CommentaryPipelineUI(PipelineUI):
                         f"📦 {total_size_mb:.1f}MB ({len(all_paths)} files)"
                     )
                     st.caption(info_text)
+
+                    # ================================================================
+                    # Jianying Materials Export Info
+                    # ================================================================
+                    if video_params.get("export_jianying_materials"):
+                        st.markdown("---")
+                        st.success(tr("commentary.jianying.exported"))
+                        st.markdown(tr("commentary.jianying.import_hint"))
 
                     # ================================================================
                     # Bilibili Upload

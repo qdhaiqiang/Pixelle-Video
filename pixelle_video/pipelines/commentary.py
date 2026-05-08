@@ -284,6 +284,20 @@ class CommentaryPipeline(BasePipeline):
 
         final_video_path = all_video_paths[0]
 
+        # ====== 6.5 Export Jianying materials ======
+        if kwargs.get("export_jianying_materials", False):
+            self._report_progress(progress_callback, "exporting_materials", 0.90)
+            from pixelle_video.services.jianying_exporter import JianyingMaterialExporter
+            for seg_idx, script in enumerate(all_scripts):
+                seg_num = seg_idx + 1
+                seg_task_dir = f"{task_dir}/segment_{seg_num:02d}"
+                exporter = JianyingMaterialExporter(seg_task_dir)
+                exporter.export(
+                    chunks=script.chunks,
+                    final_video_path=all_video_paths[seg_idx] if seg_idx < len(all_video_paths) else None,
+                )
+            logger.info("✅ Jianying materials exported for all segments")
+
         # ====== 7. Build Result ======
         self._report_progress(progress_callback, "completed", 1.0)
 
