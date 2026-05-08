@@ -456,19 +456,38 @@ class CommentaryPipelineUI(PipelineUI):
             bili_cookie_path = ""
 
             if bili_upload:
-                # Cookie path (per-user)
-                bili_cookie_path = st.text_input(
-                    tr("commentary.bilibili.cookie_path"),
-                    value=st.session_state.get("bili_cookie_path", ""),
-                    placeholder="/path/to/cookies.json",
-                    help=tr("commentary.bilibili.cookie_path_help"),
-                    key="commentary_bili_cookie_path"
-                )
-                # Persist to session state
-                if bili_cookie_path:
-                    st.session_state["bili_cookie_path"] = bili_cookie_path
+                st.markdown(f"**{tr('commentary.bilibili.cookie_step1')}**")
+                st.caption(tr("commentary.bilibili.cookie_step1_desc"))
 
-                st.caption(tr("commentary.bilibili.cookie_hint"))
+                # Cookie file uploader
+                st.markdown(f"**{tr('commentary.bilibili.cookie_step2')}**")
+                cookie_file = st.file_uploader(
+                    tr("commentary.bilibili.cookie_upload"),
+                    type=["json"],
+                    help=tr("commentary.bilibili.cookie_upload_help"),
+                    key="commentary_bili_cookie_upload"
+                )
+
+                bili_cookie_path = ""
+                if cookie_file is not None:
+                    temp_dir = Path("temp") / "bilibili_cookies"
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    cookie_path = temp_dir / f"cookies_{cookie_file.name}"
+                    with open(cookie_path, "wb") as f:
+                        f.write(cookie_file.getbuffer())
+                    bili_cookie_path = str(cookie_path)
+                    st.success(tr("commentary.bilibili.cookie_uploaded", path=bili_cookie_path))
+                else:
+                    # Fallback: text input for server-local path
+                    bili_cookie_path = st.text_input(
+                        tr("commentary.bilibili.cookie_path_local"),
+                        value=st.session_state.get("bili_cookie_path", ""),
+                        placeholder="/path/to/cookies.json",
+                        help=tr("commentary.bilibili.cookie_path_local_help"),
+                        key="commentary_bili_cookie_path"
+                    )
+                    if bili_cookie_path:
+                        st.session_state["bili_cookie_path"] = bili_cookie_path
 
                 bili_video_title = st.text_input(
                     tr("commentary.bilibili.video_title"),

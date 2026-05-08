@@ -589,8 +589,13 @@
     "commentary.jianying.exported": "✅ 剪映素材包已导出",
     "commentary.jianying.import_hint": "💡 打开剪映 → 点击「导入」→ 选择素材包目录下的对应文件夹即可",
     "settings.bilibili.hint": "Cookie 路径在每个用户的生成页面中单独配置，支持多账号",
-    "commentary.bilibili.cookie_path": "Cookie 文件路径",
-    "commentary.bilibili.cookie_path_help": "biliup-rs 登录后生成的 cookies.json 文件路径",
-    "commentary.bilibili.cookie_hint": "💡 需要先获取 cookie：在本机终端运行 ，按提示登录后 cookie 会自动保存"
+    "commentary.bilibili.cookie_step1": "步骤 1：在您的电脑获取 Cookie",
+    "commentary.bilibili.cookie_step1_desc": "在您的电脑终端运行以下命令（biliup 会自动安装）：\n1. 下载 biliup：https://github.com/biliup/biliup-rs/releases\n2. 运行：biliup -u ./cookies.json login\n3. 按提示完成登录，生成 cookies.json 文件",
+    "commentary.bilibili.cookie_step2": "步骤 2：上传 Cookie 文件",
+    "commentary.bilibili.cookie_upload": "上传 cookies.json",
+    "commentary.bilibili.cookie_upload_help": "上传本机生成的 cookies.json 文件，服务器将使用此文件上传视频到您的账号",
+    "commentary.bilibili.cookie_uploaded": "✅ Cookie 已上传：{path}",
+    "commentary.bilibili.cookie_path_local": "或输入服务器本地路径",
+    "commentary.bilibili.cookie_path_local_help": "如果 cookie 文件已在服务器上，直接输入路径"
   }
 }
