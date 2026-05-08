@@ -18,7 +18,7 @@ if not already present in PATH or project tools directory.
 
 Supported platforms:
 - macOS (x86_64, arm64)
-- Linux (x86_64, aarch64)
+- Linux (x86_64, aarch64, arm)
 - Windows (x86_64)
 """
 
@@ -26,6 +26,7 @@ import os
 import platform
 import shutil
 import subprocess
+import tarfile
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -41,55 +42,58 @@ DEFAULT_VERSION = "0.2.4"
 
 def get_tools_dir() -> Path:
     """Get the project-local tools directory."""
-    # Project root: pixelle_video/services/ -> pixelle_video/ -> project root
     project_root = Path(__file__).parent.parent.parent
     tools_dir = project_root / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
     return tools_dir
 
 
-def get_platform_info() -> tuple[str, str]:
-    """Return (os_name, arch) tuple."""
+def _get_release_filename(version: str) -> Optional[tuple[str, str]]:
+    """
+    Return (release_filename, archive_type) for this platform.
+
+    Release filenames on GitHub:
+      biliupR-v0.2.4-x86_64-macos.tar.xz
+      biliupR-v0.2.4-aarch64-macos.tar.xz
+      biliupR-v0.2.4-x86_64-linux.tar.xz
+      biliupR-v0.2.4-x86_64-linux-musl.tar.xz
+      biliupR-v0.2.4-aarch64-linux.tar.xz
+      biliupR-v0.2.4-arm-linux.tar.xz
+      biliupR-v0.2.4-x86_64-windows.zip
+    """
     system = platform.system().lower()
     machine = platform.machine().lower()
-
-    # Normalize OS name
-    if system == "darwin":
-        os_name = "apple-darwin"
-    elif system == "linux":
-        os_name = "unknown-linux-gnu"
-    elif system == "windows":
-        os_name = "pc-windows-msvc"
-    else:
-        os_name = system
 
     # Normalize architecture
     if machine in ("x86_64", "amd64"):
         arch = "x86_64"
     elif machine in ("arm64", "aarch64"):
         arch = "aarch64"
+    elif machine in ("armv7l", "arm"):
+        arch = "arm"
     else:
         arch = machine
 
-    return os_name, arch
+    if system == "darwin":
+        # macOS: biliupR-v0.2.4-x86_64-macos.tar.xz
+        #        biliupR-v0.2.4-aarch64-macos.tar.xz
+        return (f"biliupR-v{version}-{arch}-macos.tar.xz", "tar.xz")
 
+    elif system == "linux":
+        # Linux: prefer glibc version, fallback to musl
+        #        biliupR-v0.2.4-x86_64-linux.tar.xz
+        #        biliupR-v0.2.4-aarch64-linux.tar.xz
+        #        biliupR-v0.2.4-arm-linux.tar.xz
+        #        biliupR-v0.2.4-x86_64-linux-musl.tar.xz
+        if arch == "x86_64":
+            # Try glibc first, musl as fallback
+            return (f"biliupR-v{version}-x86_64-linux.tar.xz", "tar.xz")
+        return (f"biliupR-v{version}-{arch}-linux.tar.xz", "tar.xz")
 
-def get_download_url(version: str = DEFAULT_VERSION) -> Optional[str]:
-    """Build the GitHub release download URL for this platform."""
-    os_name, arch = get_platform_info()
+    elif system == "windows":
+        return (f"biliupR-v{version}-x86_64-windows.zip", "zip")
 
-    # macOS arm64 binaries may not exist; fall back to x86_64 (works via Rosetta)
-    if os_name == "apple-darwin" and arch == "aarch64":
-        arch = "x86_64"
-
-    filename = f"biliup-{version}-{arch}-{os_name}"
-    if os_name == "pc-windows-msvc":
-        filename += ".zip"
-    else:
-        filename += ".zip"
-
-    url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/{filename}"
-    return url
+    return None
 
 
 def find_biliup() -> Optional[str]:
@@ -99,14 +103,20 @@ def find_biliup() -> Optional[str]:
     if biliup_path:
         return biliup_path
 
-    # Check project tools directory
+    # Check project tools directory (also check nested dirs from tar extraction)
     tools_dir = get_tools_dir()
     candidates = [
         tools_dir / "biliup",
         tools_dir / "biliup.exe",
     ]
+    # Also search one level deep (tar extracts into subdirs)
+    for subdir in tools_dir.iterdir():
+        if subdir.is_dir():
+            candidates.append(subdir / "biliup")
+            candidates.append(subdir / "biliup.exe")
+
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.exists() and candidate.is_file():
             return str(candidate)
 
     return None
@@ -116,92 +126,122 @@ def install_biliup(version: str = DEFAULT_VERSION, force: bool = False) -> str:
     """
     Download and install biliup-rs to the project tools directory.
 
-    Args:
-        version: biliup-rs version to install
-        force: Re-install even if already present
-
     Returns:
         Absolute path to the installed biliup binary
-
-    Raises:
-        RuntimeError: If download or installation fails
     """
     existing = find_biliup()
     if existing and not force:
         logger.info(f"biliup already installed: {existing}")
         return existing
 
-    tools_dir = get_tools_dir()
-    download_url = get_download_url(version)
-    if not download_url:
+    release_info = _get_release_filename(version)
+    if not release_info:
         raise RuntimeError(f"Unsupported platform: {platform.system()} {platform.machine()}")
 
-    logger.info(f"Downloading biliup-rs v{version} from {download_url}")
+    filename, archive_type = release_info
+    download_url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/{filename}"
+    tools_dir = get_tools_dir()
+    archive_path = tools_dir / filename
 
-    zip_path = tools_dir / f"biliup-v{version}.zip"
+    logger.info(f"Downloading biliup-rs v{version}: {download_url}")
 
     # Download
     try:
-        with httpx.stream("GET", download_url, follow_redirects=True, timeout=60) as response:
+        with httpx.stream("GET", download_url, follow_redirects=True, timeout=120) as response:
             response.raise_for_status()
-            with open(zip_path, "wb") as f:
+            with open(archive_path, "wb") as f:
                 for chunk in response.iter_bytes(chunk_size=8192):
                     f.write(chunk)
-        logger.info(f"Downloaded: {zip_path}")
+        logger.info(f"Downloaded: {archive_path}")
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            raise RuntimeError(
-                f"biliup-rs v{version} not found for this platform. "
-                f"Please install manually from https://github.com/{GITHUB_REPO}/releases"
-            )
+            # For Linux x86_64, try musl fallback
+            if "linux.tar.xz" in filename and "-musl" not in filename:
+                musl_filename = filename.replace("-linux.tar.xz", "-linux-musl.tar.xz")
+                musl_url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/{musl_filename}"
+                logger.info(f"Glibc build not found, trying musl: {musl_url}")
+                try:
+                    archive_path = tools_dir / musl_filename
+                    with httpx.stream("GET", musl_url, follow_redirects=True, timeout=120) as response:
+                        response.raise_for_status()
+                        with open(archive_path, "wb") as f:
+                            for chunk in response.iter_bytes(chunk_size=8192):
+                                f.write(chunk)
+                    logger.info(f"Downloaded musl build: {archive_path}")
+                except Exception as e2:
+                    raise RuntimeError(
+                        f"biliup-rs v{version} not found for this platform. "
+                        f"Please install manually from https://github.com/{GITHUB_REPO}/releases"
+                    )
+            else:
+                raise RuntimeError(
+                    f"biliup-rs v{version} not found for this platform. "
+                    f"Please install manually from https://github.com/{GITHUB_REPO}/releases"
+                )
         raise RuntimeError(f"Download failed: {e}")
     except Exception as e:
         raise RuntimeError(f"Download failed: {e}")
 
     # Extract
     try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(tools_dir)
+        if archive_type == "tar.xz":
+            with tarfile.open(archive_path, "r:xz") as tf:
+                tf.extractall(tools_dir)
+        elif archive_type == "zip":
+            with zipfile.ZipFile(archive_path, "r") as zf:
+                zf.extractall(tools_dir)
         logger.info(f"Extracted to: {tools_dir}")
     except Exception as e:
         raise RuntimeError(f"Extraction failed: {e}")
     finally:
-        # Clean up zip
-        if zip_path.exists():
-            zip_path.unlink()
+        if archive_path.exists():
+            archive_path.unlink()
+
+    # Find binary
+    binary = _find_binary_in_tools(tools_dir)
+    if not binary:
+        raise RuntimeError("biliup binary not found after extraction")
 
     # Make executable (Unix)
     if platform.system() != "Windows":
-        for binary in tools_dir.iterdir():
-            if binary.name.startswith("biliup") and not binary.suffix:
-                binary.chmod(binary.stat().st_mode | 0o111)
-                logger.info(f"Made executable: {binary}")
-                # macOS Gatekeeper: remove quarantine if possible
-                try:
-                    subprocess.run(
-                        ["xattr", "-d", "com.apple.quarantine", str(binary)],
-                        capture_output=True,
-                        check=False,
-                    )
-                except FileNotFoundError:
-                    pass
-                return str(binary)
+        binary.chmod(binary.stat().st_mode | 0o111)
+        logger.info(f"Made executable: {binary}")
+        # macOS Gatekeeper: remove quarantine
+        try:
+            subprocess.run(
+                ["xattr", "-d", "com.apple.quarantine", str(binary)],
+                capture_output=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            pass
 
-    # Windows
-    for binary in tools_dir.iterdir():
-        if binary.name == "biliup.exe":
-            return str(binary)
+    logger.success(f"✅ biliup installed: {binary}")
+    return str(binary)
 
-    raise RuntimeError("biliup binary not found after extraction")
+
+def _find_binary_in_tools(tools_dir: Path) -> Optional[Path]:
+    """Find the biliup binary in tools dir or its subdirectories."""
+    # Direct
+    for name in ("biliup", "biliup.exe"):
+        p = tools_dir / name
+        if p.exists() and p.is_file():
+            return p
+
+    # One level deep (tar extracts into subdir like biliupR-v0.2.4-aarch64-macos/)
+    for subdir in tools_dir.iterdir():
+        if not subdir.is_dir():
+            continue
+        for name in ("biliup", "biliup.exe"):
+            p = subdir / name
+            if p.exists() and p.is_file():
+                return p
+
+    return None
 
 
 def ensure_biliup(version: str = DEFAULT_VERSION) -> str:
-    """
-    Ensure biliup is available. Install if missing.
-
-    Returns:
-        Path to biliup binary
-    """
+    """Ensure biliup is available. Install if missing."""
     existing = find_biliup()
     if existing:
         return existing
