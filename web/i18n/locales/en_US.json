@@ -567,7 +567,7 @@
     "settings.bilibili.title": "📺 Bilibili Upload Config",
     "settings.bilibili.enable": "Enable Bilibili Auto-Upload",
     "settings.bilibili.cookie_path": "Cookie File Path",
-    "settings.bilibili.cookie_path_help": "Path to biliup-rs cookies.json file",
+    "settings.bilibili.cookie_path_help": "Path to biliup-rs cookies.json file, default value auto-filled",
     "settings.bilibili.default_tid": "Default Zone",
     "settings.bilibili.default_copyright": "Default Copyright",
     "settings.bilibili.copyright_original": "Original",
@@ -594,6 +594,11 @@
     "commentary.jianying.enable": "Export Jianying material package (video clips / audio / subtitles / scripts)",
     "commentary.jianying.help": "After generation, automatically organize video clips, voiceover audio, subtitle files, cover assets, and narration scripts into the materials/ directory for easy import into Jianying for secondary editing. Large files use symlinks to save disk space.",
     "commentary.jianying.exported": "✅ Jianying material package exported",
-    "commentary.jianying.import_hint": "💡 Open Jianying → Click Import → Select the corresponding folder in the material package"
+    "commentary.jianying.import_hint": "💡 Open Jianying → Click Import → Select the corresponding folder in the material package",
+    "settings.bilibili.qr_login": "📱 QR Login",
+    "settings.bilibili.qr_login_running": "Starting biliup QR login, please check the terminal for QR code...",
+    "settings.bilibili.qr_login_complete": "✅ QR login flow completed",
+    "settings.bilibili.qr_login_hint": "If a QR code is shown in the terminal, scan it with the Bilibili mobile app. Cookie will be saved to the path above after scanning.",
+    "settings.bilibili.qr_login_manual": "⚠️ Please check the output above, or run in terminal: biliup -u <cookie_path> login"
   }
 }

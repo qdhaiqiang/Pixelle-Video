@@ -91,11 +91,25 @@ class ComfyUIConfig(BaseModel):
     video: VideoSubConfig = Field(default_factory=VideoSubConfig, description="Video-specific configuration")
 
 
+def _default_cookie_path() -> str:
+    """Auto-detect default cookie path from skill directory or home."""
+    candidates = [
+        Path.home() / ".agents" / "skills" / "bilibili-uploader" / "scripts" / "cookies.json",
+        Path.home() / "bilibili_cookies.json",
+        Path("cookies.json").resolve(),
+    ]
+    for cand in candidates:
+        if cand.exists():
+            return str(cand)
+    # Return the skill path even if not exists, as the most likely location
+    return str(candidates[0])
+
+
 class BilibiliConfig(BaseModel):
     """Bilibili upload configuration"""
     enabled: bool = Field(default=False, description="Enable Bilibili auto-upload")
     cookie_path: str = Field(
-        default="",
+        default_factory=_default_cookie_path,
         description="Path to biliup cookie file (e.g. cookies.json)"
     )
     default_tid: int = Field(default=228, description="Default zone TID (228=电影)")

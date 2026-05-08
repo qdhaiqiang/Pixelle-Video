@@ -229,7 +229,7 @@
     "settings.bilibili.title": "📺 Bilibili 上传配置",
     "settings.bilibili.enable": "启用 Bilibili 自动上传",
     "settings.bilibili.cookie_path": "Cookie 文件路径",
-    "settings.bilibili.cookie_path_help": "biliup-rs 登录后生成的 cookies.json 文件路径",
+    "settings.bilibili.cookie_path_help": "biliup-rs 登录后生成的 cookies.json 文件路径，已自动填充默认值",
     "settings.bilibili.default_tid": "默认分区",
     "settings.bilibili.default_copyright": "默认版权",
     "settings.bilibili.copyright_original": "自制",
@@ -594,6 +594,11 @@
     "commentary.jianying.enable": "导出剪映素材包（视频片段/音频/字幕/文案分离）",
     "commentary.jianying.help": "生成后自动将视频片段、解说音频、字幕文件、封面素材、解说文案整理到 materials/ 目录，方便导入剪映进行二次剪辑。大文件使用软连接，不占用额外空间。",
     "commentary.jianying.exported": "✅ 剪映素材包已导出",
-    "commentary.jianying.import_hint": "💡 打开剪映 → 点击「导入」→ 选择素材包目录下的对应文件夹即可"
+    "commentary.jianying.import_hint": "💡 打开剪映 → 点击「导入」→ 选择素材包目录下的对应文件夹即可",
+    "settings.bilibili.qr_login": "📱 扫码登录",
+    "settings.bilibili.qr_login_running": "正在启动 biliup 扫码登录，请查看终端中的二维码...",
+    "settings.bilibili.qr_login_complete": "✅ 扫码登录流程已完成",
+    "settings.bilibili.qr_login_hint": "如果终端显示了二维码，请用手机 B 站 APP 扫描。扫描完成后 cookie 会自动保存到上方路径。",
+    "settings.bilibili.qr_login_manual": "⚠️ 请查看上方输出信息，或直接在终端运行：biliup -u <cookie路径> login"
   }
 }

@@ -367,25 +367,56 @@ def render_advanced_settings():
                     key="bilibili_copyright_input"
                 )
 
-            if st.button(tr("settings.bilibili.test_login"), use_container_width=True, key="bilibili_test_login_btn"):
-                if bili_cookie_path:
+            login_col1, login_col2 = st.columns(2)
+            with login_col1:
+                if st.button(tr("settings.bilibili.qr_login"), use_container_width=True, key="bilibili_qr_login_btn"):
                     try:
                         from pixelle_video.services.biliup_installer import ensure_biliup
                         biliup_path = ensure_biliup()
                         import subprocess
+
+                        # Ensure parent dir exists
+                        Path(bili_cookie_path).parent.mkdir(parents=True, exist_ok=True)
+
+                        st.info(tr("settings.bilibili.qr_login_running"))
+                        # Run login in background (non-blocking display)
                         result = subprocess.run(
-                            [biliup_path, "-u", bili_cookie_path, "upload", "--help"],
-                            capture_output=True, text=True, timeout=10
+                            [biliup_path, "-u", bili_cookie_path, "login"],
+                            capture_output=True, text=True, timeout=120
                         )
-                        if result.returncode == 0:
-                            st.success(tr("settings.bilibili.login_success"))
+                        output = result.stdout + result.stderr
+                        # Show last few lines (may contain QR url or success msg)
+                        lines = [l for l in output.splitlines() if l.strip()]
+                        display_lines = lines[-10:] if len(lines) > 10 else lines
+                        st.code("\n".join(display_lines), language="text")
+
+                        if result.returncode == 0 or "login" in output.lower() or "扫码" in output:
+                            st.success(tr("settings.bilibili.qr_login_complete"))
+                            st.info(tr("settings.bilibili.qr_login_hint"))
                         else:
-                            err = result.stderr or "Cookie file may be invalid"
-                            st.error(tr("settings.bilibili.login_failed", error=err))
+                            st.warning(tr("settings.bilibili.qr_login_manual"))
                     except Exception as e:
                         st.error(tr("settings.bilibili.login_failed", error=str(e)))
-                else:
-                    st.warning(tr("error.missing_field", field=tr("settings.bilibili.cookie_path")))
+            with login_col2:
+                if st.button(tr("settings.bilibili.test_login"), use_container_width=True, key="bilibili_test_login_btn"):
+                    if bili_cookie_path:
+                        try:
+                            from pixelle_video.services.biliup_installer import ensure_biliup
+                            biliup_path = ensure_biliup()
+                            import subprocess
+                            result = subprocess.run(
+                                [biliup_path, "-u", bili_cookie_path, "upload", "--help"],
+                                capture_output=True, text=True, timeout=10
+                            )
+                            if result.returncode == 0:
+                                st.success(tr("settings.bilibili.login_success"))
+                            else:
+                                err = result.stderr or "Cookie file may be invalid"
+                                st.error(tr("settings.bilibili.login_failed", error=err))
+                        except Exception as e:
+                            st.error(tr("settings.bilibili.login_failed", error=str(e)))
+                    else:
+                        st.warning(tr("error.missing_field", field=tr("settings.bilibili.cookie_path")))
 
         # ====================================================================
         # Action Buttons (full width at bottom)
