@@ -217,9 +217,8 @@ class CommentaryPipeline(BasePipeline):
                     script.cover.headline = cfg.cover_headline
                 if cfg.cover_question:
                     script.cover.question = cfg.cover_question
-            elif segment_count > 1:
-                # Add segment number to cover for subsequent segments
-                script.cover.headline = f"第{seg_num}段：{script.cover.headline}"
+            # NOTE: segment numbers are already added by the LLM in the prompt
+            # (headline_hint suggests '第N段：...'), so we don't prepend here.
 
             logger.info(f"✅ Segment {seg_num} script: {len(script.chunks)} chunks")
             all_scripts.append(script)

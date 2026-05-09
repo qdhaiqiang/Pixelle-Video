@@ -919,6 +919,9 @@ class CommentaryPipelineUI(PipelineUI):
                                         uploader = BilibiliUploader(cookie_path=cookie_path)
 
                                         title = final_title or Path(vp).stem
+                                        # Append segment number for multi-segment uploads
+                                        if len(all_paths) > 1:
+                                            title = f"{title}（{seg_label}）"
                                         extra_tags = final_tags
                                         tid = video_params.get("bili_tid", 228)
                                         copyright_type = video_params.get("bili_copyright", 1)

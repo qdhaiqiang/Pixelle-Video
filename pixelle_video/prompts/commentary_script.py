@@ -99,7 +99,8 @@ def build_commentary_prompt(
   - 不复述原台词，不做配音
   - 不机械强调"第几集展示了什么"
   - 口语化短句，适合快速 TTS
-  - 信息密度要足够填满时间线，避免空白
+  - **字数必须精确匹配时长**：每个 chunk 的 `text` 字数 = `(end - start) * 5` 到 `(end - start) * 6` 字（按 Edge TTS +18% 语速约 5-6 字/秒估算）
+  - 宁可多写也不要少写，避免出现大段静音
 - `source_windows`：2-4 个原视频时间窗口（每个 2-6 秒），作为该 chunk 对应的画面素材
   - 必须落在 [{content_start:.1f}, {content_end:.1f}] 范围内
   - 优先选择剧情对应的画面
@@ -213,7 +214,8 @@ def build_segment_commentary_prompt(
   - 聚焦故事线、人物动机、前因后果
   - 不复述原台词，不做配音
   - 口语化短句，适合快速 TTS
-  - 信息密度要足够填满时间线
+  - **字数必须精确匹配时长**：每个 chunk 的 `text` 字数 = `(end - start) * 5` 到 `(end - start) * 6` 字（按 Edge TTS +18% 语速约 5-6 字/秒估算）
+  - 宁可多写也不要少写，避免 chunk 结束后出现大段静音
 - `source_windows`：2-4 个原视频时间窗口（每个 2-6 秒）
   - 必须落在 [{content_start:.1f}, {content_end:.1f}] 范围内
 

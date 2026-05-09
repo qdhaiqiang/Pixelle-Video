@@ -100,6 +100,25 @@ class CommentaryCompositor:
         return float(data["format"]["duration"])
 
     @staticmethod
+    def _has_audio_stream(path: Path) -> bool:
+        """Return True if the file contains at least one audio stream."""
+        try:
+            out = subprocess.check_output(
+                [
+                    "ffprobe", "-hide_banner", "-v", "error",
+                    "-select_streams", "a",
+                    "-show_entries", "stream=codec_type",
+                    "-of", "json", str(path),
+                ],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            data = json.loads(out)
+            return bool(data.get("streams"))
+        except Exception:
+            return False
+
+    @staticmethod
     def _probe_size(path: Path) -> Tuple[int, int]:
         data = CommentaryCompositor._ffprobe_json(path)
         video = next(s for s in data["streams"] if "width" in s)
@@ -132,16 +151,17 @@ class CommentaryCompositor:
 
     @staticmethod
     def _ass_escape(text: str) -> str:
-        return text.replace("{", "").replace("}", "")
+        # Strip backslashes (ASS control-char prefix) and braces (override tags)
+        return text.replace("\\", "").replace("{", "").replace("}", "")
 
     @staticmethod
-    def _wrap_caption(text: str, max_chars: int = 26) -> str:
+    def _wrap_caption(text: str, max_chars: int = 26, max_lines: int = 4) -> str:
         text = re.sub(r"\s+", "", text)
         lines: List[str] = []
         while text:
             lines.append(text[:max_chars])
             text = text[max_chars:]
-        return r"\N".join(lines[:2])
+        return r"\N".join(lines[:max_lines])
 
     # ==================== Step 1: Clip Extraction ====================
 
@@ -183,6 +203,22 @@ class CommentaryCompositor:
                 ])
                 clip_files.append(out)
 
+        # Ensure every clip has an audio stream so concat demuxer doesn't
+        # produce broken output when some clips are missing audio.
+        for i, clip in enumerate(clip_files):
+            if not self._has_audio_stream(clip):
+                logger.warning(f"Clip {clip.name} has no audio; injecting silent track")
+                silent = work_dir / f"clip_{i+1:03d}_silent.mp4"
+                self._run([
+                    "ffmpeg", "-hide_banner", "-y",
+                    "-i", str(clip),
+                    "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                    "-shortest",
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "96k",
+                    str(silent),
+                ])
+                clip_files[i] = silent
+
         # Concatenate clips
         concat_file = work_dir / "video_concat.txt"
         concat_file.write_text("\n".join(f"file '{c}'" for c in clip_files) + "\n", encoding="utf-8")
@@ -207,34 +243,55 @@ class CommentaryCompositor:
     async def synthesize_voiceover(self, chunks: List[CommentaryChunk], cfg: CommentaryConfig,
                                    output_path: Path) -> Path:
         """Generate TTS voiceover with atempo adjustment to match chunk durations."""
+        import asyncio
+        import random
+        import edge_tts as etts
+        from aiohttp import ClientConnectorError, WSServerHandshakeError, ClientResponseError
+        from edge_tts.exceptions import NoAudioReceived
+
         work_dir = output_path.parent
         work_dir.mkdir(parents=True, exist_ok=True)
-
-        # Import edge_tts dynamically
-        import edge_tts as etts
 
         concat_file = work_dir / "voice_concat.txt"
         entries: List[str] = []
 
-        async def synthesize(text: str, out_path: Path) -> None:
-            communicate = etts.Communicate(text, cfg.tts_voice, rate=cfg.tts_rate, volume="+0%")
-            await communicate.save(str(out_path))
+        async def synthesize_with_retry(text: str, out_path: Path) -> None:
+            max_attempts = 6
+            base_delay = 1.0
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    communicate = etts.Communicate(
+                        text,
+                        cfg.tts_voice,
+                        rate=cfg.tts_rate,
+                        volume="+0%",
+                        connect_timeout=15,
+                        receive_timeout=60,
+                    )
+                    await communicate.save(str(out_path))
+                    return
+                except (ClientConnectorError, WSServerHandshakeError, ClientResponseError, NoAudioReceived) as e:
+                    if attempt >= max_attempts:
+                        logger.error(f"TTS failed after {max_attempts} attempts: {e}")
+                        raise
+                    delay = min(base_delay * (2 ** (attempt - 1)), 30.0) + random.uniform(0, 1.0)
+                    logger.warning(
+                        f"TTS connection error (attempt {attempt}/{max_attempts}): {type(e).__name__}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                except Exception:
+                    if attempt >= max_attempts:
+                        raise
+                    await asyncio.sleep(2.0)
 
         for chunk in chunks:
             raw = work_dir / f"{chunk.chunk_id}_raw.mp3"
             normalized = work_dir / f"{chunk.chunk_id}_raw.wav"
             wav = work_dir / f"{chunk.chunk_id}.wav"
 
-            # Retry TTS up to 4 times
-            for attempt in range(1, 5):
-                try:
-                    logger.debug(f"TTS {chunk.chunk_id} attempt={attempt}")
-                    await synthesize(chunk.text, raw)
-                    break
-                except Exception:
-                    if attempt == 4:
-                        raise
-                    time.sleep(2 * attempt)
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+            await synthesize_with_retry(chunk.text, raw)
 
             # Normalize
             self._run(["ffmpeg", "-hide_banner", "-y", "-i", str(raw),
@@ -245,9 +302,8 @@ class CommentaryCompositor:
             slot = chunk.end - chunk.start
             target_dur = max(0.1, slot * max(0.55, min(1.0, cfg.narration_slot_ratio)))
             tempo = raw_dur / target_dur if target_dur > 0 else 1.0
-            # Never slow down audio (tempo < 1); only speed up if too long
-            if tempo < 1.0:
-                tempo = 1.0
+            if tempo < 0.5:
+                tempo = 0.5
 
             filters = f"{self._atempo_chain(tempo)},apad,atrim=0:{slot},asetpts=N/SR/TB,aresample=48000"
             self._run(["ffmpeg", "-hide_banner", "-y", "-i", str(normalized),
@@ -261,13 +317,124 @@ class CommentaryCompositor:
         ])
         return output_path
 
+    # ==================== Step 2.5: Continuous TTS (no padding) ====================
+
+    async def _synthesize_chunks_continuous(self, chunks: List[CommentaryChunk], cfg: CommentaryConfig,
+                                             work_dir: Path) -> Tuple[List[Path], List[float]]:
+        """Generate TTS for all chunks with atempo but WITHOUT apad/atrim.
+
+        Returns (list of wav paths, list of actual durations after tempo).
+        Each audio file is exactly as long as the TTS reads (stretched by atempo),
+        with no silence padding. Chunks are meant to be concatenated back-to-back.
+        """
+        import asyncio
+        import random
+        import edge_tts as etts
+        from aiohttp import ClientConnectorError, WSServerHandshakeError, ClientResponseError
+        from edge_tts.exceptions import NoAudioReceived
+
+        wav_paths: List[Path] = []
+        actual_durations: List[float] = []
+
+        async def synthesize_with_retry(text: str, out_path: Path) -> None:
+            """Call edge-tts with robust retry/backoff and longer timeout."""
+            max_attempts = 6
+            base_delay = 1.0
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    communicate = etts.Communicate(
+                        text,
+                        cfg.tts_voice,
+                        rate=cfg.tts_rate,
+                        volume="+0%",
+                        connect_timeout=15,
+                        receive_timeout=60,
+                    )
+                    await communicate.save(str(out_path))
+                    return
+                except (ClientConnectorError, WSServerHandshakeError, ClientResponseError, NoAudioReceived) as e:
+                    if attempt >= max_attempts:
+                        logger.error(f"TTS failed after {max_attempts} attempts: {e}")
+                        raise
+                    # Exponential backoff + jitter
+                    delay = min(base_delay * (2 ** (attempt - 1)), 30.0)
+                    delay += random.uniform(0, 1.0)
+                    logger.warning(
+                        f"TTS connection error (attempt {attempt}/{max_attempts}): {type(e).__name__}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                except Exception:
+                    # Unknown error — one more quick retry then give up
+                    if attempt >= max_attempts:
+                        raise
+                    await asyncio.sleep(2.0)
+
+        for chunk in chunks:
+            raw = work_dir / f"{chunk.chunk_id}_raw.mp3"
+            normalized = work_dir / f"{chunk.chunk_id}_raw.wav"
+            wav = work_dir / f"{chunk.chunk_id}.wav"
+
+            # Rate-limit: small random delay between chunks to avoid hammering the server
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+            await synthesize_with_retry(chunk.text, raw)
+
+            # Normalize
+            self._run(["ffmpeg", "-hide_banner", "-y", "-i", str(raw),
+                       "-ac", "2", "-ar", "48000", str(normalized)])
+
+            # Calculate atempo
+            raw_dur = self._ffprobe_duration(normalized)
+            slot = chunk.end - chunk.start
+            target_dur = max(0.1, slot * max(0.55, min(1.0, cfg.narration_slot_ratio)))
+            tempo = raw_dur / target_dur if target_dur > 0 else 1.0
+            # Allow slowdown down to 0.5 (atempo hard limit)
+            if tempo < 0.5:
+                tempo = 0.5
+
+            # Apply atempo ONLY — no apad, no atrim
+            filters = f"{self._atempo_chain(tempo)},asetpts=N/SR/TB,aresample=48000"
+            self._run(["ffmpeg", "-hide_banner", "-y", "-i", str(normalized),
+                       "-af", filters, "-ac", "2", str(wav)])
+
+            actual_dur = self._ffprobe_duration(wav)
+            wav_paths.append(wav)
+            actual_durations.append(actual_dur)
+
+            logger.info(
+                f"🎙️ Chunk {chunk.chunk_id}: raw={raw_dur:.2f}s, slot={slot:.2f}s, "
+                f"tempo={tempo:.2f}, actual={actual_dur:.2f}s"
+            )
+
+        return wav_paths, actual_durations
+
+    @staticmethod
+    def _concat_wav_files(wav_paths: List[Path], output_path: Path) -> Path:
+        """Concatenate multiple WAV files into one using ffmpeg concat demuxer."""
+        concat_file = output_path.parent / "voice_concat.txt"
+        concat_file.write_text(
+            "\n".join(f"file '{p}'" for p in wav_paths) + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run([
+            "ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file), "-c:a", "pcm_s16le", str(output_path),
+        ], check=True)
+        return output_path
+
     # ==================== Step 3: ASS Captions ====================
 
     def generate_ass_captions(self, chunks: List[CommentaryChunk], width: int, height: int,
                               slot_ratio: float, output_path: Path) -> Path:
         """Generate ASS subtitle file for commentary captions."""
-        font_size = max(24, int(height * 0.057))
-        margin_v = max(12, int(height * 0.034))
+        font_size = max(24, int(height * 0.040))
+        margin_v = max(12, int(height * 0.030))
+
+        # Estimate how many Chinese chars fit per line (approx 0.95*font_size per char)
+        avail_width = width - 76  # MarginL + MarginR = 38 + 38
+        char_width = font_size * 0.95
+        max_chars = max(20, int(avail_width / char_width))
+        max_lines = 4
 
         header = f"""[Script Info]
 ScriptType: v4.00+
@@ -285,7 +452,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
         events = []
         for chunk in chunks:
-            text = self._ass_escape(self._wrap_caption(chunk.text))
+            # Escape first (remove braces/backslashes from raw text), then wrap with \N
+            escaped = self._ass_escape(chunk.text)
+            text = self._wrap_caption(escaped, max_chars=max_chars, max_lines=max_lines)
             target_dur = max(0.1, (chunk.end - chunk.start) * max(0.55, min(1.0, slot_ratio)))
             caption_end = min(chunk.end, chunk.start + target_dur)
             events.append(
@@ -305,8 +474,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         Audio priority: BGM > Original Audio > None (voiceover only).
         BGM and original audio are mutually exclusive.
         """
-        vf = f"ass={shlex.quote(str(captions))}"
+        # In filter_complex the path is parsed by FFmpeg, not the shell.
+        # Wrap in single quotes so FFmpeg treats the whole path literally.
+        caption_path = str(captions).replace("'", "'\\''")
+        vf = f"ass='{caption_path}'"
         has_bgm = bgm_path and bgm_path.exists()
+        has_orig_audio = self._has_audio_stream(assembled)
+        if has_orig_audio:
+            logger.debug(f"Detected audio stream in assembled video: {assembled}")
+        else:
+            logger.warning(f"No audio stream in assembled video, skipping original audio mix: {assembled}")
 
         # BGM takes priority over original audio
         if has_bgm:
@@ -327,7 +504,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
                 str(output_path),
             ]
-        elif keep_original_audio:
+        elif keep_original_audio and has_orig_audio:
             logger.info(f"🔊 Keeping original audio (volume={original_audio_volume:.0%})")
             orig_vol = f"{original_audio_volume:.2f}"
             cmd = [
@@ -454,9 +631,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         width, height = self._probe_size(input_video)
         font = "/System/Library/Fonts/Supplemental/Songti.ttc"
 
-        # Build headline (split if too long)
+        # Build headline (split if too long, auto-scale font to fit)
         headline_lines = self._split_headline(cover.headline or cover.title)
+        safe_width = int(width * 0.88)  # 6% margin on each side
         headline_font = 124 if len(headline_lines) == 1 else 102
+        headline_font = self._fit_font_size(headline_lines, safe_width, headline_font, min_font=52)
         headline_gap = int(headline_font * 1.08)
         headline_block_h = headline_font + (len(headline_lines) - 1) * headline_gap
         headline_y = int((height - headline_block_h) * 0.39)
@@ -464,6 +643,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         question_y = rule_y + 38
         rule_x = int(width * 0.18)
         rule_w = int(width * 0.64)
+
+        # Auto-scale title if too long
+        title_font = 42
+        if cover.title and self._estimate_text_width(cover.title, title_font) > safe_width:
+            title_font = self._fit_font_size([cover.title], safe_width, title_font, min_font=28)
+
+        # Auto-scale question if too long
+        question_font = 46
+        if cover.question and self._estimate_text_width(cover.question, question_font) > safe_width:
+            question_font = self._fit_font_size([cover.question], safe_width, question_font, min_font=32)
+
+        logger.info(
+            f"🎨 Cover layout: width={width}, headline_font={headline_font}, "
+            f"title_font={title_font}, question_font={question_font}"
+        )
 
         filters = [
             f"scale={width}:{height}:force_original_aspect_ratio=increase",
@@ -478,7 +672,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if cover.title:
             filters.append(
                 f"drawtext=fontfile={font}:text='{self._drawtext_escape(cover.title)}':"
-                "x=136:y=94:fontsize=42:fontcolor=0xE5D5AA:"
+                f"x=136:y=94:fontsize={title_font}:fontcolor=0xE5D5AA:"
                 "shadowcolor=0x000000@0.80:shadowx=2:shadowy=2"
             )
 
@@ -495,7 +689,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if cover.question:
             filters.append(
                 f"drawtext=fontfile={font}:text='{self._drawtext_escape(cover.question)}':"
-                f"x=(w-text_w)/2:y={question_y}:fontsize=46:fontcolor=0xFFFFFF:"
+                f"x=(w-text_w)/2:y={question_y}:fontsize={question_font}:fontcolor=0xFFFFFF:"
                 "shadowcolor=0x000000@0.85:shadowx=3:shadowy=3"
             )
 
@@ -536,6 +730,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", r"\'")
 
     @staticmethod
+    def _estimate_text_width(text: str, font_size: int) -> float:
+        """Estimate pixel width of text for Songti SC at given font size.
+        Chinese chars ~0.95*font_size, ASCII ~0.55*font_size, punctuation ~0.5*font_size.
+        """
+        width = 0.0
+        for ch in text:
+            o = ord(ch)
+            if 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF or 0x3000 <= o <= 0x303F:
+                width += font_size * 0.95
+            elif ch.isascii():
+                width += font_size * 0.55
+            else:
+                width += font_size * 0.90
+        return width
+
+    @staticmethod
+    def _fit_font_size(lines: List[str], target_width: int, base_font: int, min_font: int = 48) -> int:
+        """Auto-shrink font size so the longest line fits within target_width."""
+        longest = max(lines, key=len)
+        font = base_font
+        while font > min_font:
+            estimated = CommentaryCompositor._estimate_text_width(longest, font)
+            if estimated <= target_width:
+                break
+            font -= 4
+        return font
+
+    @staticmethod
     def _split_headline(text: str) -> List[str]:
         explicit = [l.strip() for l in text.split("|") if l.strip()]
         if explicit:
@@ -567,22 +789,38 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         content_end = cfg.content_end or self._ffprobe_duration(video_path)
         target_duration = float(cfg.target_duration)
 
-        # Step 1: Extract clips
+        # Step 0: Generate raw TTS chunks and measure actual durations
+        logger.info("🎙️ Generating voiceover chunks (continuous mode)...")
+        chunk_wavs, chunk_durations = await self._synthesize_chunks_continuous(chunks, cfg, paths.work_dir)
+
+        # Re-calculate timeline: each chunk's start/end based on actual audio length
+        logger.info("📐 Re-calculating timeline for continuous narration...")
+        current_time = 0.0
+        for i, chunk in enumerate(chunks):
+            chunk.start = current_time
+            chunk.end = current_time + chunk_durations[i]
+            current_time = chunk.end
+
+        actual_total_duration = current_time
+        logger.info(f"📐 Actual total narration duration: {actual_total_duration:.2f}s (target was {target_duration:.2f}s)")
+
+        # Step 1: Extract clips with updated timeline
         logger.info("🎬 Extracting video clips...")
         mask_subtitles = getattr(cfg, 'mask_subtitles', False)
         if mask_subtitles:
             logger.info("🎭 Subtitle masking enabled: blurring bottom subtitle area")
         assembled = self.render_video_clips(video_path, chunks, content_start, content_end, paths.work_dir, mask_subtitles)
 
-        # Step 2: TTS voiceover
-        logger.info("🎙️ Generating voiceover...")
-        voiceover = await self.synthesize_voiceover(chunks, cfg, paths.voiceover_path)
+        # Step 2: Concatenate audio files back-to-back (no silence gaps)
+        logger.info("🎙️ Concatenating voiceover...")
+        self._concat_wav_files(chunk_wavs, paths.voiceover_path)
 
-        # Step 3: ASS captions
+        # Step 3: ASS captions with updated timeline (full chunk duration)
         logger.info("📝 Generating captions...")
         width, height = self._probe_size(assembled)
         ass_path = paths.work_dir / "commentary.ass"
-        self.generate_ass_captions(chunks, width, height, cfg.narration_slot_ratio, ass_path)
+        # Use slot_ratio=1.0 so captions span the entire chunk (no early cut-off)
+        self.generate_ass_captions(chunks, width, height, 1.0, ass_path)
 
         # Step 4: Compose base video
         logger.info("🎞️ Composing base video...")
@@ -590,7 +828,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         keep_original = getattr(cfg, 'keep_original_audio', True)
         orig_vol = getattr(cfg, 'original_audio_volume', 0.2)
         self.compose_final(
-            assembled, voiceover, ass_path, bgm_path, target_duration, paths.base_path,
+            assembled, paths.voiceover_path, ass_path, bgm_path, actual_total_duration, paths.base_path,
             keep_original_audio=keep_original,
             original_audio_volume=orig_vol,
         )
@@ -611,19 +849,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     height=height,
                 )
                 # Download/copy result to cover_bg_path
-                if hasattr(result, 'url') and result.url:
-                    import httpx
-                    async with httpx.AsyncClient() as client:
-                        r = await client.get(result.url)
-                        r.raise_for_status()
-                        cover_bg_path.write_bytes(r.content)
-                elif hasattr(result, 'path') and result.path:
-                    import shutil
-                    shutil.copy2(result.path, cover_bg_path)
+                url_or_path = getattr(result, 'url', None) or getattr(result, 'path', None)
+                if url_or_path:
+                    if url_or_path.startswith('http://') or url_or_path.startswith('https://'):
+                        import httpx
+                        async with httpx.AsyncClient() as client:
+                            r = await client.get(url_or_path, timeout=60)
+                            r.raise_for_status()
+                            cover_bg_path.write_bytes(r.content)
+                            logger.info(f"✅ AI cover downloaded from URL: {url_or_path}")
+                    else:
+                        # Local file path (e.g. from self-hosted ComfyUI)
+                        import shutil
+                        src = Path(url_or_path)
+                        if src.exists():
+                            shutil.copy2(src, cover_bg_path)
+                            logger.info(f"✅ AI cover copied from local path: {src}")
+                        else:
+                            logger.warning(f"AI cover local path does not exist: {src}")
+                            cover_bg_path = None
+                else:
+                    logger.warning("AI cover result has no url or path")
+                    cover_bg_path = None
             except Exception as e:
                 logger.warning(f"AI cover generation failed: {e}, using fallback")
                 cover_bg_path = None  # Will trigger fallback in add_cover_intro
         else:
+            if not cover.image_prompt:
+                logger.warning("No image_prompt in cover config, skipping AI cover generation")
             cover_bg_path = None
 
         # Step 7: Add cover intro
