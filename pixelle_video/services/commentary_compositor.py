@@ -862,6 +862,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         # Local file path (e.g. from self-hosted ComfyUI)
                         import shutil
                         src = Path(url_or_path)
+                        if not src.exists():
+                            # Try resolving from project root if relative
+                            project_root = Path(__file__).resolve().parents[2]
+                            alt_src = project_root / url_or_path
+                            if alt_src.exists():
+                                src = alt_src
                         if src.exists():
                             shutil.copy2(src, cover_bg_path)
                             logger.info(f"✅ AI cover copied from local path: {src}")

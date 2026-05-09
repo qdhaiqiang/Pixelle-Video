@@ -130,7 +130,15 @@ class BilibiliUploader:
         # Build title
         upload_title = title or vp.stem
         # Bilibili title max 80 chars
-        upload_title = upload_title[:80]
+        # Preserve segment suffix (e.g. "（第 X 段）" / "(Segment X)") when truncating
+        segment_match = re.search(r'[（(][^）)]*(?:第|Segment)\s*\d+[^）)]*[）)]$', upload_title)
+        if segment_match:
+            suffix = segment_match.group()
+            base = upload_title[:segment_match.start()]
+            max_base = 80 - len(suffix)
+            upload_title = base[:max_base] + suffix
+        else:
+            upload_title = upload_title[:80]
 
         # Build tags
         all_tags: List[str] = []

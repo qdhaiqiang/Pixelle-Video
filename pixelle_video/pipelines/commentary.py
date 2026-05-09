@@ -211,6 +211,15 @@ class CommentaryPipeline(BasePipeline):
             script.cover.background_time = seg_content_start + seg_duration_actual * 0.5
             logger.info(f"🖼️ Segment {seg_num} cover background: {script.cover.background_time:.1f}s")
 
+            # Ensure image_prompt is not empty (LLM may return empty string)
+            if not script.cover.image_prompt or not script.cover.image_prompt.strip():
+                script.cover.image_prompt = (
+                    f"Cinematic movie poster, dramatic lighting, "
+                    f"{script.cover.title or video_path.stem or 'film scene'}, "
+                    f"atmospheric composition, highly detailed, 4k quality"
+                )
+                logger.warning(f"Segment {seg_num} image_prompt was empty, generated fallback prompt")
+
             # Apply manual overrides only to first segment's cover
             if seg_idx == 0:
                 if cfg.cover_headline:

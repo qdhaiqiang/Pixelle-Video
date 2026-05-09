@@ -921,7 +921,9 @@ class CommentaryPipelineUI(PipelineUI):
                                         title = final_title or Path(vp).stem
                                         # Append segment number for multi-segment uploads
                                         if len(all_paths) > 1:
-                                            title = f"{title}（{seg_label}）"
+                                            seg_suffix = f"（{seg_label}）"
+                                            max_base_len = 80 - len(seg_suffix)
+                                            title = f"{title[:max_base_len]}{seg_suffix}"
                                         extra_tags = final_tags
                                         tid = video_params.get("bili_tid", 228)
                                         copyright_type = video_params.get("bili_copyright", 1)
