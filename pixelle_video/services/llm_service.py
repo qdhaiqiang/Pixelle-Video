@@ -289,12 +289,17 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
         Returns:
             Parsed model instance
         """
+        from pydantic import ValidationError
+        last_error = None
+        
         # Try direct JSON parsing first
         try:
             data = json.loads(content)
             return response_type.model_validate(data)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            last_error = f"JSON decode error: {e}"
+        except ValidationError as e:
+            last_error = f"Pydantic validation error: {e}"
         
         # Try extracting from markdown code block
         json_pattern = r'```(?:json)?\s*([\s\S]+?)\s*```'
@@ -303,8 +308,10 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
             try:
                 data = json.loads(match.group(1))
                 return response_type.model_validate(data)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                last_error = f"Markdown JSON decode error: {e}"
+            except ValidationError as e:
+                last_error = f"Markdown Pydantic validation error: {e}"
         
         # Try to find any JSON object in the text
         brace_start = content.find('{')
@@ -314,10 +321,13 @@ You MUST respond with ONLY a valid JSON object (no markdown, no extra text)."""
                 json_str = content[brace_start:brace_end + 1]
                 data = json.loads(json_str)
                 return response_type.model_validate(data)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                last_error = f"Brace extraction JSON decode error: {e}"
+            except ValidationError as e:
+                last_error = f"Brace extraction Pydantic validation error: {e}"
         
-        raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {content[:200]}...")
+        content_preview = content[:500] if len(content) > 500 else content
+        raise ValueError(f"Failed to parse LLM response as {response_type.__name__}: {last_error}. Content preview: {content_preview}")
     
     @property
     def active(self) -> str:

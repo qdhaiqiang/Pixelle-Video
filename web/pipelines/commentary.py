@@ -182,23 +182,25 @@ class CommentaryPipelineUI(PipelineUI):
                         key="commentary_keep_original"
                     )
                     if keep_original_audio:
-                        original_audio_volume = st.slider(
+                        vol_pct = st.slider(
                             tr("commentary.original_audio_volume"),
-                            min_value=0.0,
-                            max_value=1.0,
-                            value=0.2,
-                            step=0.05,
-                            format="%.0f%%",
+                            min_value=0,
+                            max_value=100,
+                            value=20,
+                            step=5,
+                            format="%d%%",
                             key="commentary_orig_volume"
                         )
-                        st.caption(tr("commentary.original_audio_hint", volume=f"{int(original_audio_volume*100)}%"))
+                        original_audio_volume = vol_pct / 100.0
+                        st.caption(tr("commentary.original_audio_hint", volume=f"{vol_pct}%"))
 
             # Initialize advanced vars with defaults
-            narration_slot_ratio = 0.82
+            narration_slot_ratio = 0.9
             content_start = 0.0
             content_end = None
             cover_headline = None
             cover_question = None
+            mask_subtitle_height_ratio = 0.10
 
             # Advanced options
             with st.expander(tr("commentary.advanced"), expanded=False):
@@ -206,8 +208,9 @@ class CommentaryPipelineUI(PipelineUI):
                     tr("commentary.slot_ratio"),
                     min_value=0.55,
                     max_value=1.0,
-                    value=0.82,
+                    value=0.9,
                     step=0.01,
+                    help=tr("commentary.slot_ratio_help"),
                     key="commentary_slot_ratio"
                 )
 
@@ -216,6 +219,7 @@ class CommentaryPipelineUI(PipelineUI):
                     min_value=0.0,
                     value=0.0,
                     step=1.0,
+                    help=tr("commentary.content_start_help"),
                     key="commentary_content_start"
                 )
 
@@ -224,6 +228,7 @@ class CommentaryPipelineUI(PipelineUI):
                     min_value=0.0,
                     value=0.0,
                     step=1.0,
+                    help=tr("commentary.content_end_help"),
                     key="commentary_content_end"
                 )
 
@@ -233,14 +238,30 @@ class CommentaryPipelineUI(PipelineUI):
                 cover_headline = st.text_input(
                     tr("commentary.cover_headline"),
                     placeholder=tr("commentary.cover_headline_placeholder"),
+                    help=tr("commentary.cover_headline_help"),
                     key="commentary_cover_headline"
                 )
 
                 cover_question = st.text_input(
                     tr("commentary.cover_question"),
                     placeholder=tr("commentary.cover_question_placeholder"),
+                    help=tr("commentary.cover_question_help"),
                     key="commentary_cover_question"
                 )
+
+                # Mask subtitle height ratio (only shown when masking is enabled)
+                if mask_subtitles:
+                    mask_pct = st.slider(
+                        tr("commentary.mask_subtitle_height_ratio"),
+                        min_value=5,
+                        max_value=40,
+                        value=10,
+                        step=1,
+                        format="%d%%",
+                        help=tr("commentary.mask_subtitle_height_ratio_help"),
+                        key="commentary_mask_subtitle_height_ratio"
+                    )
+                    mask_subtitle_height_ratio = mask_pct / 100.0
 
         return {
             "source_video": source_video,
@@ -253,9 +274,27 @@ class CommentaryPipelineUI(PipelineUI):
             "cover_headline": cover_headline or None,
             "cover_question": cover_question or None,
             "mask_subtitles": mask_subtitles,
+            "mask_subtitle_height_ratio": mask_subtitle_height_ratio,
             "keep_original_audio": keep_original_audio,
             "original_audio_volume": original_audio_volume,
         }
+
+    @staticmethod
+    def _find_existing_bili_cookie() -> str:
+        """Search common paths for an existing biliup cookies.json.
+        Returns the first found path or empty string."""
+        home = Path.home()
+        candidates = [
+            home / "cookies.json",
+            home / ".biliup" / "cookies.json",
+            home / ".config" / "biliup" / "cookies.json",
+            Path("cookies.json").resolve(),
+        ]
+        for p in candidates:
+            if p.exists():
+                logger.info(f"Found existing bili cookie: {p}")
+                return str(p)
+        return ""
 
     def _render_subtitle_detection(self, detection: SubtitleDetectionResult):
         """Render subtitle detection results in UI."""
@@ -371,8 +410,9 @@ class CommentaryPipelineUI(PipelineUI):
                     )
                     st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
 
-                # Default commentary uses +18% rate for fast narration
-                tts_rate = "+18%"
+                # Convert tts_speed (e.g. 1.2) to edge-tts rate format (e.g. "+20%")
+                speed_pct = int((tts_speed - 1.0) * 100)
+                tts_rate = f"+{speed_pct}%" if speed_pct >= 0 else f"{speed_pct}%"
                 tts_workflow_key = None
                 ref_audio_path = None
 
@@ -543,9 +583,15 @@ class CommentaryPipelineUI(PipelineUI):
                     st.success(tr("commentary.bilibili.cookie_uploaded", path=bili_cookie_path))
                 else:
                     # Fallback: text input for server-local path
+                    # Priority: session_state > auto-detected existing cookie
+                    default_cookie = st.session_state.get("bili_cookie_path", "")
+                    if not default_cookie:
+                        default_cookie = self._find_existing_bili_cookie()
+                        if default_cookie:
+                            st.session_state["bili_cookie_path"] = default_cookie
                     bili_cookie_path = st.text_input(
                         tr("commentary.bilibili.cookie_path_local"),
-                        value=st.session_state.get("bili_cookie_path", ""),
+                        value=default_cookie,
                         placeholder="/path/to/cookies.json",
                         help=tr("commentary.bilibili.cookie_path_local_help"),
                         key="commentary_bili_cookie_path"
@@ -755,6 +801,7 @@ class CommentaryPipelineUI(PipelineUI):
                             "cover_headline": video_params.get("cover_headline"),
                             "cover_question": video_params.get("cover_question"),
                             "mask_subtitles": video_params.get("mask_subtitles", False),
+                            "mask_subtitle_height_ratio": video_params.get("mask_subtitle_height_ratio", 0.10),
                             "keep_original_audio": video_params.get("keep_original_audio", True),
                             "original_audio_volume": video_params.get("original_audio_volume", 0.2),
                             "export_jianying_materials": video_params.get("export_jianying_materials", False),

@@ -69,6 +69,7 @@ class CommentaryConfig(BaseModel):
     cover_headline: Optional[str] = Field(default=None, description="Manual override for cover headline")
     cover_question: Optional[str] = Field(default=None, description="Manual override for cover question")
     mask_subtitles: bool = Field(default=False, description="Blur bottom area to mask original hard subtitles")
+    mask_subtitle_height_ratio: float = Field(default=0.10, ge=0.05, le=0.40, description="Height ratio of bottom area to mask (0.05-0.40)")
     segment_count: int = Field(default=1, ge=1, le=10, description="Number of commentary segments to generate (total duration is split evenly)")
     keep_original_audio: bool = Field(default=True, description="Keep original video audio as background")
     original_audio_volume: float = Field(default=0.2, ge=0.0, le=1.0, description="Volume of original audio (0.0-1.0)")

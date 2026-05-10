@@ -28,6 +28,7 @@ Features:
 - Final concatenation of all segments
 """
 
+import asyncio
 import json
 import shutil
 import subprocess
@@ -118,6 +119,7 @@ class CommentaryPipeline(BasePipeline):
             cover_headline=kwargs.get("cover_headline"),
             cover_question=kwargs.get("cover_question"),
             mask_subtitles=kwargs.get("mask_subtitles", False),
+            mask_subtitle_height_ratio=kwargs.get("mask_subtitle_height_ratio", 0.10),
             keep_original_audio=kwargs.get("keep_original_audio", True),
             original_audio_volume=kwargs.get("original_audio_volume", 0.2),
             segment_count=segment_count,
@@ -199,12 +201,26 @@ class CommentaryPipeline(BasePipeline):
             )
 
             logger.info(f"🤖 Generating script for segment {seg_num}/{segment_count}...")
-            script: CommentaryScript = await self.llm(
-                prompt=prompt,
-                response_type=CommentaryScript,
-                temperature=0.7,
-                max_tokens=8000,
-            )
+            # Retry with increasing max_tokens if JSON parsing fails
+            script: CommentaryScript = None
+            for attempt in range(3):
+                try:
+                    script = await self.llm(
+                        prompt=prompt,
+                        response_type=CommentaryScript,
+                        temperature=0.7,
+                        max_tokens=8000 + attempt * 4000,
+                    )
+                    break
+                except ValueError as e:
+                    logger.warning(f"Script generation attempt {attempt + 1} failed: {e}")
+                    if attempt >= 2:
+                        raise RuntimeError(
+                            f"无法生成第 {seg_num} 段解说脚本。"
+                            f"可能原因：1) 剧情文本过长；2) LLM 返回了不完整的 JSON。"
+                            f"错误: {e}"
+                        )
+                    await asyncio.sleep(1)
 
             # Set cover background to middle of this segment's time range (skip intro)
             seg_duration_actual = seg_content_end - seg_content_start
@@ -250,6 +266,7 @@ class CommentaryPipeline(BasePipeline):
                 content_start=seg_content_start,
                 content_end=seg_content_end,
                 mask_subtitles=cfg.mask_subtitles,
+                mask_subtitle_height_ratio=cfg.mask_subtitle_height_ratio,
                 segment_count=1,
             )
 

@@ -155,19 +155,79 @@ class CommentaryCompositor:
         return text.replace("\\", "").replace("{", "").replace("}", "")
 
     @staticmethod
-    def _wrap_caption(text: str, max_chars: int = 26, max_lines: int = 4) -> str:
+    def _split_semantic(text: str, max_chars: int) -> List[str]:
+        """Split text into semantic segments by punctuation.
+        Each segment fits within max_chars characters.
+        Subtitles appear phrase-by-phrase, synced with narration."""
         text = re.sub(r"\s+", "", text)
+        if len(text) <= max_chars:
+            return [text]
+
+        # Split by major punctuation
+        raw_parts = re.split(r'([。！？；])', text)
+        phrases: List[str] = []
+        i = 0
+        while i < len(raw_parts):
+            if i + 1 < len(raw_parts) and raw_parts[i + 1] in '。！？；':
+                phrases.append(raw_parts[i] + raw_parts[i + 1])
+                i += 2
+            else:
+                if raw_parts[i]:
+                    phrases.append(raw_parts[i])
+                i += 1
+
+        # Merge short phrases into segments that fit max_chars
+        segments: List[str] = []
+        current = ""
+        for p in phrases:
+            if len(current) + len(p) <= max_chars:
+                current += p
+            else:
+                if current:
+                    segments.append(current)
+                current = p
+        if current:
+            segments.append(current)
+
+        # Hard-split any segment still too long
+        final: List[str] = []
+        for seg in segments:
+            while len(seg) > max_chars:
+                final.append(seg[:max_chars])
+                seg = seg[max_chars:]
+            if seg:
+                final.append(seg)
+        return final
+
+    @staticmethod
+    def _wrap_caption(text: str, max_chars: int = 26) -> str:
+        """Wrap text into balanced lines, each not exceeding max_chars.
+        Returns all lines (no truncation) joined by \\N."""
+        text = re.sub(r"\s+", "", text)
+        total = len(text)
+        if total <= max_chars:
+            return text
+
+        import math
+        lines_needed = math.ceil(total / max_chars)
+        base_len = total // lines_needed
+        remainder = total % lines_needed
+
         lines: List[str] = []
-        while text:
-            lines.append(text[:max_chars])
-            text = text[max_chars:]
-        return r"\N".join(lines[:max_lines])
+        pos = 0
+        for i in range(lines_needed):
+            line_len = base_len + (1 if i < remainder else 0)
+            lines.append(text[pos:pos + line_len])
+            pos += line_len
+
+        return r"\N".join(lines)
 
     # ==================== Step 1: Clip Extraction ====================
 
     def render_video_clips(self, video_path: Path, chunks: List[CommentaryChunk],
                            content_start: float, content_end: float, work_dir: Path,
-                           mask_subtitles: bool = False) -> Path:
+                           mask_subtitles: bool = False,
+                           mask_subtitle_height_ratio: float = 0.10) -> Path:
         """Extract clips from source video according to chunk source_windows."""
         clip_files: List[Path] = []
         index = 0
@@ -185,11 +245,12 @@ class CommentaryCompositor:
                 # Build video filter
                 base_vf = "setsar=1,fps=30000/1001,format=yuv420p"
                 if mask_subtitles and video_height > 0:
-                    # Blur bottom 10% area to mask original hard subtitles
-                    mask_h = max(int(video_height * 0.10), 30)
+                    # Blur bottom area to mask original hard subtitles (configurable height)
+                    ratio = max(0.05, min(0.40, mask_subtitle_height_ratio))
+                    mask_h = max(int(video_height * ratio), 30)
                     mask_y = video_height - mask_h
                     base_vf = f"{base_vf},boxblur=0:0:0:0:0:0,drawbox=x=0:y={mask_y}:w={video_width}:h={mask_h}:color=black@0.85:t=fill"
-                    logger.debug(f"Masking subtitle area: y={mask_y}, h={mask_h}")
+                    logger.info(f"Masking subtitle area: ratio={ratio:.0%}, y={mask_y}, h={mask_h}")
 
                 self._run([
                     "ffmpeg", "-hide_banner", "-y",
@@ -302,8 +363,9 @@ class CommentaryCompositor:
             slot = chunk.end - chunk.start
             target_dur = max(0.1, slot * max(0.55, min(1.0, cfg.narration_slot_ratio)))
             tempo = raw_dur / target_dur if target_dur > 0 else 1.0
-            if tempo < 0.5:
-                tempo = 0.5
+            # Never slow down — stretched audio sounds dragged and unnatural
+            if tempo < 1.0:
+                tempo = 1.0
 
             filters = f"{self._atempo_chain(tempo)},apad,atrim=0:{slot},asetpts=N/SR/TB,aresample=48000"
             self._run(["ffmpeg", "-hide_banner", "-y", "-i", str(normalized),
@@ -388,9 +450,10 @@ class CommentaryCompositor:
             slot = chunk.end - chunk.start
             target_dur = max(0.1, slot * max(0.55, min(1.0, cfg.narration_slot_ratio)))
             tempo = raw_dur / target_dur if target_dur > 0 else 1.0
-            # Allow slowdown down to 0.5 (atempo hard limit)
-            if tempo < 0.5:
-                tempo = 0.5
+            # In continuous mode: only speed up (tempo >= 1.0), never slow down.
+            # Slowdown would stretch audio and make narration sound dragged.
+            if tempo < 1.0:
+                tempo = 1.0
 
             # Apply atempo ONLY — no apad, no atrim
             filters = f"{self._atempo_chain(tempo)},asetpts=N/SR/TB,aresample=48000"
@@ -430,11 +493,11 @@ class CommentaryCompositor:
         font_size = max(24, int(height * 0.040))
         margin_v = max(12, int(height * 0.030))
 
-        # Estimate how many Chinese chars fit per line (approx 0.95*font_size per char)
-        avail_width = width - 76  # MarginL + MarginR = 38 + 38
-        char_width = font_size * 0.95
-        max_chars = max(20, int(avail_width / char_width))
-        max_lines = 4
+        # Fix max_chars for cinematic subtitle readability.
+        # Dynamic calc based on video width yields 45+ chars on 1920px screens,
+        # making subtitles stretch edge-to-edge — ugly. Cap at 18 for clean lines.
+        max_chars = 18
+        MAX_SUBTITLE_LINES = 2  # 字幕始终最多2行，超出则拆成多个时间片段
 
         header = f"""[Script Info]
 ScriptType: v4.00+
@@ -451,15 +514,25 @@ Style: Default,Songti SC,{font_size},&H00FFFFFF,&H000000FF,&H00101010,&H99000000
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
         events = []
+        max_segment_chars = max_chars * MAX_SUBTITLE_LINES  # e.g. 18 * 2 = 36
         for chunk in chunks:
-            # Escape first (remove braces/backslashes from raw text), then wrap with \N
             escaped = self._ass_escape(chunk.text)
-            text = self._wrap_caption(escaped, max_chars=max_chars, max_lines=max_lines)
+            segments = self._split_semantic(escaped, max_segment_chars)
+
             target_dur = max(0.1, (chunk.end - chunk.start) * max(0.55, min(1.0, slot_ratio)))
             caption_end = min(chunk.end, chunk.start + target_dur)
-            events.append(
-                f"Dialogue: 0,{self._ass_time(chunk.start)},{self._ass_time(caption_end)},Default,,0,0,0,,{text}"
-            )
+            total_duration = caption_end - chunk.start
+            total_chars = sum(len(s) for s in segments)
+
+            current_time = chunk.start
+            for seg in segments:
+                text = self._wrap_caption(seg, max_chars=max_chars)
+                seg_duration = total_duration * (len(seg) / total_chars) if total_chars > 0 else total_duration
+                seg_end = min(caption_end, current_time + seg_duration)
+                events.append(
+                    f"Dialogue: 0,{self._ass_time(current_time)},{self._ass_time(seg_end)},Default,,0,0,0,,{text}"
+                )
+                current_time = seg_end
 
         output_path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
         return output_path
@@ -807,9 +880,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # Step 1: Extract clips with updated timeline
         logger.info("🎬 Extracting video clips...")
         mask_subtitles = getattr(cfg, 'mask_subtitles', False)
+        mask_ratio = getattr(cfg, 'mask_subtitle_height_ratio', 0.10)
         if mask_subtitles:
-            logger.info("🎭 Subtitle masking enabled: blurring bottom subtitle area")
-        assembled = self.render_video_clips(video_path, chunks, content_start, content_end, paths.work_dir, mask_subtitles)
+            logger.info(f"🎭 Subtitle masking enabled: blurring bottom {mask_ratio:.0%} of video")
+        assembled = self.render_video_clips(
+            video_path, chunks, content_start, content_end, paths.work_dir,
+            mask_subtitles=mask_subtitles,
+            mask_subtitle_height_ratio=mask_ratio,
+        )
 
         # Step 2: Concatenate audio files back-to-back (no silence gaps)
         logger.info("🎙️ Concatenating voiceover...")
