@@ -353,6 +353,21 @@ class CommentaryPipeline(BasePipeline):
             completed_at=datetime.now(),
         )
 
+        # Build per-segment titles for Bilibili upload
+        segment_titles: List[str] = []
+        for seg_idx, script in enumerate(all_scripts):
+            seg_num = seg_idx + 1
+            # Prefer headline (more catchy), fallback to title
+            base = script.cover.headline or script.title or f"第{seg_num}段"
+            # Remove existing segment prefix if present, then re-add in desired format
+            import re
+            base_clean = re.sub(r'^第\d+段[：:]', '', base).strip()
+            if len(all_scripts) > 1:
+                seg_title = f"第{seg_num}段：{base_clean}"
+            else:
+                seg_title = base_clean
+            segment_titles.append(seg_title)
+
         result = VideoGenerationResult(
             video_path=final_video_path,
             storyboard=storyboard,
@@ -360,6 +375,7 @@ class CommentaryPipeline(BasePipeline):
             file_size=video_size,
             additional_video_paths=all_video_paths[1:] if len(all_video_paths) > 1 else [],
             cover_paths=cover_paths,
+            segment_titles=segment_titles,
         )
 
         logger.success(f"🎬 Commentary pipeline complete: {final_video_path}")

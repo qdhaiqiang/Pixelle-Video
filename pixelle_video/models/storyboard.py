@@ -142,4 +142,5 @@ class VideoGenerationResult:
     created_at: datetime = field(default_factory=datetime.now)
     additional_video_paths: List[str] = field(default_factory=list)  # Extra segments
     cover_paths: List[str] = field(default_factory=list)  # Cover image paths per segment
+    segment_titles: List[str] = field(default_factory=list)  # Per-segment Bilibili titles
 

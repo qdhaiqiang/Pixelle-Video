@@ -956,6 +956,9 @@ class CommentaryPipelineUI(PipelineUI):
                                 except Exception as e:
                                     logger.warning(f"Failed to resolve collection name: {e}")
 
+                            # Per-segment titles from pipeline (each segment has unique title)
+                            seg_titles = getattr(result, "segment_titles", []) or []
+
                             for idx, vp in enumerate(all_paths):
                                 if not os.path.exists(vp):
                                     continue
@@ -965,16 +968,24 @@ class CommentaryPipelineUI(PipelineUI):
                                         from pixelle_video.services.bilibili_uploader import BilibiliUploader
                                         uploader = BilibiliUploader(cookie_path=cookie_path)
 
-                                        title = final_title or Path(vp).stem
-                                        # Append segment number for multi-segment uploads
-                                        if len(all_paths) > 1:
-                                            seg_suffix = f"（{seg_label}）"
-                                            max_base_len = 80 - len(seg_suffix)
-                                            title = f"{title[:max_base_len]}{seg_suffix}"
+                                        # Use per-segment title if available; fallback to AI-generated or filename
+                                        if idx < len(seg_titles) and seg_titles[idx]:
+                                            title = seg_titles[idx]
+                                        else:
+                                            title = final_title or Path(vp).stem
+                                            if len(all_paths) > 1:
+                                                seg_suffix = f"（{seg_label}）"
+                                                max_base_len = 80 - len(seg_suffix)
+                                                title = f"{title[:max_base_len]}{seg_suffix}"
+
                                         extra_tags = final_tags
                                         tid = video_params.get("bili_tid", 228)
                                         copyright_type = video_params.get("bili_copyright", 1)
+                                        # Cover: use AI-generated cover image per segment
                                         cover = cover_paths[idx] if idx < len(cover_paths) else None
+                                        if cover and not Path(cover).exists():
+                                            logger.warning(f"Cover path does not exist: {cover}")
+                                            cover = None
 
                                         bvid = uploader.upload(
                                             video_path=vp,
