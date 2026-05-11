@@ -158,7 +158,7 @@ class ScreenRecordingPipelineUI(PipelineUI):
 
             tts_inference_mode = "local"
             tts_voice = "zh-CN-XiaoxiaoNeural"
-            tts_speed = 1.0
+            tts_speed = 1.2
             tts_workflow = None
             ref_audio_path: Optional[str] = None
             bgm_path = None

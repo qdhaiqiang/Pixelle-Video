@@ -76,7 +76,7 @@ class ScreenRecordingProcessor:
         synthesize_dubbing: bool = False,
         tts_inference_mode: str = "local",
         tts_voice: str = "zh-CN-XiaoxiaoNeural",
-        tts_speed: float = 1.0,
+        tts_speed: float = 1.2,
         tts_workflow: Optional[str] = None,
         ref_audio: Optional[str] = None,
         bgm_path: Optional[str] = None,
@@ -710,12 +710,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             return
 
         filters = []
+        # Keep the user's selected TTS speed. Only compress narration that would
+        # overrun the original subtitle slot; shorter narration becomes silence.
         tempo = raw_duration / target_duration if target_duration > 0 else 1.0
         if tempo > 1.02:
             filters.extend(self._atempo_filters(tempo))
-        elif tempo >= 0.75 and tempo < 0.98:
-            filters.extend(self._atempo_filters(tempo))
-        filters.append(f"apad")
+        filters.append("apad")
         filters.append(f"atrim=0:{target_duration:.3f}")
         filters.append("asetpts=N/SR/TB")
 
