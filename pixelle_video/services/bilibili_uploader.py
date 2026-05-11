@@ -78,6 +78,71 @@ class BilibiliUploader:
             logger.error(f"Login check failed: {e}")
             return False
 
+    @staticmethod
+    def _prepare_cover_for_upload(cover: Optional[str]) -> Optional[str]:
+        """
+        Normalize a cover image before passing it to biliup.
+
+        AI image providers may return PNG/WebP bytes that are copied to a .jpg
+        path. ffmpeg can usually read that by sniffing the file header, but
+        biliup/Bilibili upload may rely on extension/content consistency. Save a
+        real RGB JPEG beside the source and pass its absolute path.
+        """
+        if not cover:
+            return None
+
+        src = Path(cover).expanduser()
+        if not src.exists():
+            logger.warning(f"Bilibili cover path does not exist: {cover}")
+            return None
+
+        src = src.resolve()
+        prepared = src.with_name(f"{src.stem}.bilibili_cover.jpg")
+
+        try:
+            from PIL import Image
+
+            with Image.open(src) as img:
+                img.load()
+                if img.mode in ("RGBA", "LA"):
+                    background = Image.new("RGB", img.size, (255, 255, 255))
+                    alpha = img.getchannel("A")
+                    background.paste(img.convert("RGBA"), mask=alpha)
+                    rgb = background
+                else:
+                    rgb = img.convert("RGB")
+
+                rgb.save(prepared, format="JPEG", quality=92, optimize=True)
+
+            logger.info(f"🖼️ Bilibili cover prepared: {prepared}")
+            return str(prepared)
+        except ImportError:
+            logger.debug("Pillow is not available; preparing Bilibili cover with ffmpeg")
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-hide_banner", "-y",
+                        "-i", str(src),
+                        "-frames:v", "1",
+                        "-q:v", "2",
+                        str(prepared),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                logger.info(f"🖼️ Bilibili cover prepared: {prepared}")
+                return str(prepared)
+            except Exception as ffmpeg_error:
+                logger.warning(
+                    f"Failed to prepare Bilibili cover {src} with ffmpeg: {ffmpeg_error}; using original file"
+                )
+                return str(src)
+        except Exception as e:
+            logger.warning(f"Failed to prepare Bilibili cover {src}: {e}; using original file")
+            return str(src)
+
     def upload(
         self,
         video_path: str,
@@ -174,8 +239,9 @@ class BilibiliUploader:
             "--limit", str(limit),
         ]
 
-        if cover and Path(cover).exists():
-            cmd.extend(["--cover", cover])
+        prepared_cover = self._prepare_cover_for_upload(cover)
+        if prepared_cover:
+            cmd.extend(["--cover", prepared_cover])
         if dynamic:
             cmd.extend(["--dynamic", dynamic])
         if dtime:

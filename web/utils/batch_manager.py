@@ -62,6 +62,25 @@ class SimpleBatchManager:
                 "failed_count": K
             }
         """
+        from web.utils.async_helpers import run_async
+
+        return run_async(self._execute_batch_async(
+            pixelle_video=pixelle_video,
+            topics=topics,
+            shared_config=shared_config,
+            overall_progress_callback=overall_progress_callback,
+            task_progress_callback_factory=task_progress_callback_factory,
+        ))
+
+    async def _execute_batch_async(
+        self,
+        pixelle_video,
+        topics: List[str],
+        shared_config: Dict[str, Any],
+        overall_progress_callback: Optional[Callable] = None,
+        task_progress_callback_factory: Optional[Callable] = None
+    ) -> Dict[str, Any]:
+        """Execute all batch tasks inside one event loop."""
         self.results = []
         self.errors = []
         self.total_count = len(topics)
@@ -108,9 +127,10 @@ class SimpleBatchManager:
                 if task_progress_callback_factory:
                     task_params["progress_callback"] = task_progress_callback_factory(idx, topic)
                 
-                # Execute generation
-                from web.utils.async_helpers import run_async
-                result = run_async(pixelle_video.generate_video(**task_params))
+                # Execute generation. Keep the whole batch in one event loop so
+                # shared async resources such as Playwright browsers remain valid
+                # across videos in the same batch.
+                result = await pixelle_video.generate_video(**task_params)
                 
                 # Extract task_id from video_path (e.g., output/20251118_173821_f96a/final.mp4)
                 from pathlib import Path
@@ -162,4 +182,3 @@ class SimpleBatchManager:
             "success_count": success_count,
             "failed_count": failed_count
         }
-

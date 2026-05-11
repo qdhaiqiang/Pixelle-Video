@@ -29,6 +29,7 @@ import os
 import re
 import tempfile
 import uuid
+import asyncio
 from typing import Dict, Any, Optional
 from pathlib import Path
 from loguru import logger
@@ -55,6 +56,7 @@ class HTMLFrameGenerator:
     
     _browser = None
     _playwright = None
+    _browser_loop = None
 
     def __init__(self, template_path: str):
         """
@@ -307,6 +309,17 @@ class HTMLFrameGenerator:
     @classmethod
     async def _ensure_browser(cls):
         """Lazily initialize a shared Playwright browser instance"""
+        current_loop = asyncio.get_running_loop()
+
+        # Playwright connections are bound to the event loop that created them.
+        # Streamlit batch generation calls asyncio.run() once per video, so a
+        # cached browser from a previous task can point at a closed transport.
+        if cls._browser_loop is not None and cls._browser_loop is not current_loop:
+            logger.debug("Discarding Playwright browser from a previous event loop")
+            cls._browser = None
+            cls._playwright = None
+            cls._browser_loop = None
+
         if cls._browser is None or not cls._browser.is_connected():
             from playwright.async_api import async_playwright
             cls._playwright = await async_playwright().start()
@@ -318,6 +331,7 @@ class HTMLFrameGenerator:
                     '--disable-extensions',
                 ]
             )
+            cls._browser_loop = current_loop
             logger.debug("Initialized Playwright Chromium browser")
         return cls._browser
 
@@ -325,12 +339,24 @@ class HTMLFrameGenerator:
     async def close_browser(cls):
         """Shutdown the shared browser instance (call on app teardown)"""
         if cls._browser:
-            await cls._browser.close()
+            try:
+                await cls._browser.close()
+            except Exception as e:
+                logger.debug(f"Ignoring Playwright browser close error: {e}")
             cls._browser = None
         if cls._playwright:
-            await cls._playwright.stop()
+            try:
+                await cls._playwright.stop()
+            except Exception as e:
+                logger.debug(f"Ignoring Playwright stop error: {e}")
             cls._playwright = None
+            cls._browser_loop = None
             logger.debug("Playwright browser closed")
+
+    @classmethod
+    async def _reset_browser(cls):
+        """Drop the cached Playwright browser after transport/browser failures."""
+        await cls.close_browser()
 
     async def generate_frame(
         self,
@@ -387,24 +413,43 @@ class HTMLFrameGenerator:
         logger.debug(f"Rendering HTML template to {output_path} (size: {self.width}x{self.height})")
         tmp_html_path = None
         try:
-            browser = await self._ensure_browser()
-            page = await browser.new_page(
-                viewport={'width': self.width, 'height': self.height},
-                device_scale_factor=1,
-            )
-            try:
-                # Write HTML to a temp file and navigate via file:// URL so that
-                # local file:// image references are loaded under the same origin.
-                fd, tmp_html_path = tempfile.mkstemp(suffix='.html', prefix='pv_frame_')
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    f.write(html)
-                
-                await page.goto(Path(tmp_html_path).as_uri(), wait_until='networkidle')
-                await page.screenshot(path=output_path, type='png', omit_background=True)
-            finally:
-                await page.close()
-                if tmp_html_path and os.path.exists(tmp_html_path):
-                    os.unlink(tmp_html_path)
+            last_error = None
+            for attempt in range(2):
+                page = None
+                try:
+                    browser = await self._ensure_browser()
+                    page = await browser.new_page(
+                        viewport={'width': self.width, 'height': self.height},
+                        device_scale_factor=1,
+                    )
+
+                    # Write HTML to a temp file and navigate via file:// URL so that
+                    # local file:// image references are loaded under the same origin.
+                    fd, tmp_html_path = tempfile.mkstemp(suffix='.html', prefix='pv_frame_')
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        f.write(html)
+
+                    await page.goto(Path(tmp_html_path).as_uri(), wait_until='networkidle')
+                    await page.screenshot(path=output_path, type='png', omit_background=True)
+                    break
+                except Exception as e:
+                    last_error = e
+                    if attempt == 0 and self._is_browser_transport_error(e):
+                        logger.warning(f"Playwright browser transport failed, restarting browser: {e}")
+                        await self._reset_browser()
+                        continue
+                    raise
+                finally:
+                    if page is not None:
+                        try:
+                            await page.close()
+                        except Exception as e:
+                            logger.debug(f"Ignoring Playwright page close error: {e}")
+                    if tmp_html_path and os.path.exists(tmp_html_path):
+                        os.unlink(tmp_html_path)
+                    tmp_html_path = None
+            else:
+                raise last_error
             
             logger.info(f"Frame generated: {output_path}")
             return output_path
@@ -412,3 +457,19 @@ class HTMLFrameGenerator:
         except Exception as e:
             logger.error(f"Failed to render HTML template: {e}")
             raise RuntimeError(f"HTML rendering failed: {e}")
+
+    @staticmethod
+    def _is_browser_transport_error(error: Exception) -> bool:
+        """Return True for stale Playwright/browser transport errors worth retrying."""
+        text = str(error).lower()
+        return any(
+            marker in text
+            for marker in (
+                "transport closed",
+                "handler is closed",
+                "browser has been closed",
+                "target page, context or browser has been closed",
+                "connection closed",
+                "writeunixtransport closed",
+            )
+        )

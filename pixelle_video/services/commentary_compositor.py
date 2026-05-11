@@ -688,7 +688,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cover_bg_path: Path to AI-generated cover background image (or None)
             output_path: Final output path
         """
-        work_dir = output_path.parent / "_work"
+        work_dir = cover_bg_path.parent if cover_bg_path is not None else output_path.parent / "_work"
         work_dir.mkdir(parents=True, exist_ok=True)
         cover_clip = work_dir / "cover_intro.mp4"
 
@@ -965,16 +965,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # Step 7: Add cover intro
         logger.info("🎨 Adding cover intro...")
+        cover_intro_bg_path = cover_bg_path or (paths.work_dir / "cover_bg_fallback.jpg")
         final = self.add_cover_intro(
             input_video=paths.progress_path,
             source_video=video_path,
             cover=cover,
-            cover_bg_path=cover_bg_path,
+            cover_bg_path=cover_intro_bg_path,
             output_path=paths.final_path,
         )
 
         # Determine actual cover path used (add_cover_intro may fallback)
-        actual_cover_path = cover_bg_path
+        actual_cover_path = cover_intro_bg_path
         if actual_cover_path is None or not actual_cover_path.is_file():
             actual_cover_path = paths.work_dir / "cover_bg_fallback.jpg"
         if not actual_cover_path.is_file():

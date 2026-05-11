@@ -282,8 +282,7 @@ class CommentaryPipeline(BasePipeline):
                 task_dir=seg_task_dir,
             )
             segment_videos.append(seg_video)
-            if seg_cover_path:
-                cover_paths.append(str(seg_cover_path))
+            cover_paths.append(str(seg_cover_path) if seg_cover_path else "")
             logger.info(f"✅ Segment {seg_num} video complete: {seg_video}")
 
         # ====== 6. Save segments as independent files ======
@@ -521,6 +520,8 @@ class CommentaryPipeline(BasePipeline):
                 "result": {
                     "video_path": result.video_path,
                     "video_paths": [result.video_path] + list(result.additional_video_paths),
+                    "cover_paths": result.cover_paths,
+                    "segment_titles": result.segment_titles,
                     "duration": result.duration,
                     "file_size": result.file_size,
                     "n_frames": sum(len(s.chunks) for s in scripts),
