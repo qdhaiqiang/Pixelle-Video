@@ -132,11 +132,46 @@ class ScreenRecordingPipelineUI(PipelineUI):
                 key="screen_recording_ai_polish",
             )
 
+            pace_mode = st.radio(
+                tr("screen_recording.pace.mode"),
+                ["keep_original", "smart_compress"],
+                horizontal=True,
+                format_func=lambda x: tr(f"screen_recording.pace.mode.{x}"),
+                key="screen_recording_pace_mode",
+            )
+            silence_gap_threshold = 1.2
+            clip_padding = 0.45
+            if pace_mode == "smart_compress":
+                col_gap, col_pad = st.columns(2)
+                with col_gap:
+                    silence_gap_threshold = st.slider(
+                        tr("screen_recording.pace.gap_threshold"),
+                        min_value=0.5,
+                        max_value=5.0,
+                        value=1.2,
+                        step=0.1,
+                        help=tr("screen_recording.pace.gap_threshold_help"),
+                        key="screen_recording_silence_gap_threshold",
+                    )
+                with col_pad:
+                    clip_padding = st.slider(
+                        tr("screen_recording.pace.clip_padding"),
+                        min_value=0.1,
+                        max_value=2.0,
+                        value=0.45,
+                        step=0.05,
+                        help=tr("screen_recording.pace.clip_padding_help"),
+                        key="screen_recording_clip_padding",
+                    )
+
         return {
             "industry_context": industry_context.strip(),
             "whisper_model": whisper_model,
             "language": language,
             "ai_polish": ai_polish,
+            "pace_mode": pace_mode,
+            "silence_gap_threshold": silence_gap_threshold,
+            "clip_padding": clip_padding,
         }
 
     def _render_dubbing_settings(self, pixelle_video: Any) -> dict:
@@ -457,6 +492,7 @@ class ScreenRecordingPipelineUI(PipelineUI):
             "transcribing_audio": tr("screen_recording.progress.transcribing_audio"),
             "cleaning_subtitles": tr("screen_recording.progress.cleaning_subtitles"),
             "polishing_subtitles": tr("screen_recording.progress.polishing_subtitles"),
+            "compressing_timeline": tr("screen_recording.progress.compressing_timeline"),
             "synthesizing_dubbing": tr("screen_recording.progress.synthesizing_dubbing"),
             "rendering_video": tr("screen_recording.progress.rendering_video"),
             "exporting_materials": tr("screen_recording.progress.exporting_materials"),

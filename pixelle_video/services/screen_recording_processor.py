@@ -81,6 +81,9 @@ class ScreenRecordingProcessor:
         ref_audio: Optional[str] = None,
         bgm_path: Optional[str] = None,
         bgm_volume: float = 0.10,
+        pace_mode: str = "keep_original",
+        silence_gap_threshold: float = 1.2,
+        clip_padding: float = 0.45,
         progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
     ) -> ScreenRecordingResult:
         self._report(progress_callback, "initializing", 0.02)
@@ -130,6 +133,25 @@ class ScreenRecordingProcessor:
         if source_duration <= 0 and segments:
             source_duration = max(segment.end for segment in segments)
 
+        render_source_video = source_video
+        render_duration = source_duration
+        timeline_ranges = None
+        if pace_mode == "smart_compress" and source_duration > 0:
+            timeline_ranges = self._build_compact_ranges(
+                segments=segments,
+                source_duration=source_duration,
+                gap_threshold=silence_gap_threshold,
+                padding=clip_padding,
+            )
+            compact_duration = sum(end - start for start, end in timeline_ranges)
+            if timeline_ranges and compact_duration < source_duration - 0.5:
+                self._report(progress_callback, "compressing_timeline", 0.60)
+                compact_video = work_dir / "compact_source.mp4"
+                self._render_clip_timeline(source_video, timeline_ranges, compact_video)
+                segments = self._remap_segments_to_timeline(segments, timeline_ranges)
+                render_source_video = compact_video
+                render_duration = compact_duration
+
         segments_json.write_text(
             json.dumps([s.__dict__ for s in segments], ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -143,7 +165,7 @@ class ScreenRecordingProcessor:
             await self._synthesize_dubbing(
                 segments,
                 dubbed_audio,
-                target_duration=source_duration,
+                target_duration=render_duration,
                 tts_inference_mode=tts_inference_mode,
                 tts_voice=tts_voice,
                 tts_speed=tts_speed,
@@ -153,13 +175,13 @@ class ScreenRecordingProcessor:
 
         self._report(progress_callback, "rendering_video", 0.82)
         self._render_video(
-            source_video=source_video,
+            source_video=render_source_video,
             subtitles_ass=ass_path,
             output_video=processed_video,
             dubbing_audio=dubbed_audio,
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
-            target_duration=source_duration,
+            target_duration=render_duration,
         )
 
         self._report(progress_callback, "exporting_materials", 0.92)
@@ -197,6 +219,10 @@ class ScreenRecordingProcessor:
             tts_workflow=tts_workflow,
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
+            pace_mode=pace_mode,
+            silence_gap_threshold=silence_gap_threshold,
+            clip_padding=clip_padding,
+            timeline_ranges=timeline_ranges,
             glossary_path=glossary_path,
             correction_path=correction_path,
         )
@@ -444,6 +470,88 @@ class ScreenRecordingProcessor:
             ]
         subprocess.run(cmd, check=True)
 
+    def _build_compact_ranges(
+        self,
+        segments: list[SubtitleSegment],
+        source_duration: float,
+        gap_threshold: float,
+        padding: float,
+    ) -> list[tuple[float, float]]:
+        ranges: list[tuple[float, float]] = []
+        for segment in segments:
+            start = max(0.0, segment.start - padding)
+            end = min(source_duration, segment.end + padding)
+            if not ranges or start - ranges[-1][1] > gap_threshold:
+                ranges.append((start, end))
+            else:
+                prev_start, prev_end = ranges[-1]
+                ranges[-1] = (prev_start, max(prev_end, end))
+
+        if not ranges:
+            return [(0.0, source_duration)]
+        return [(start, end) for start, end in ranges if end - start > 0.05]
+
+    def _render_clip_timeline(
+        self,
+        source_video: Path,
+        ranges: list[tuple[float, float]],
+        output_video: Path,
+    ) -> None:
+        clips_dir = output_video.parent / "timeline_clips"
+        clips_dir.mkdir(parents=True, exist_ok=True)
+        clip_paths: list[Path] = []
+
+        for idx, (start, end) in enumerate(ranges):
+            clip_path = clips_dir / f"clip_{idx:03d}.mp4"
+            duration = max(0.05, end - start)
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-y",
+                    "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(source_video),
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "160k",
+                    "-avoid_negative_ts", "make_zero", str(clip_path),
+                ],
+                check=True,
+            )
+            clip_paths.append(clip_path)
+
+        concat_path = clips_dir / "concat.txt"
+        concat_path.write_text(
+            "\n".join(f"file '{clip.resolve()}'" for clip in clip_paths) + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(concat_path), "-c", "copy", str(output_video),
+            ],
+            check=True,
+        )
+
+    @staticmethod
+    def _remap_segments_to_timeline(
+        segments: list[SubtitleSegment],
+        ranges: list[tuple[float, float]],
+    ) -> list[SubtitleSegment]:
+        offsets: list[tuple[float, float, float]] = []
+        cursor = 0.0
+        for start, end in ranges:
+            offsets.append((start, end, cursor))
+            cursor += end - start
+
+        remapped: list[SubtitleSegment] = []
+        for segment in segments:
+            for start, end, out_start in offsets:
+                if segment.end <= start or segment.start >= end:
+                    continue
+                new_start = out_start + max(0.0, segment.start - start)
+                new_end = out_start + min(end, segment.end) - start
+                if new_end - new_start > 0.05:
+                    remapped.append(SubtitleSegment(new_start, new_end, segment.text))
+                break
+        return remapped
+
     def _export_materials(
         self,
         source_video: Path,
@@ -515,6 +623,10 @@ class ScreenRecordingProcessor:
         tts_workflow: Optional[str],
         bgm_path: Optional[str],
         bgm_volume: float,
+        pace_mode: str,
+        silence_gap_threshold: float,
+        clip_padding: float,
+        timeline_ranges: Optional[list[tuple[float, float]]],
         glossary_path: Optional[str],
         correction_path: Optional[str],
     ) -> None:
@@ -553,6 +665,9 @@ class ScreenRecordingProcessor:
                     "tts_workflow": tts_workflow,
                     "bgm_path": bgm_path,
                     "bgm_volume": bgm_volume,
+                    "pace_mode": pace_mode,
+                    "silence_gap_threshold": silence_gap_threshold,
+                    "clip_padding": clip_padding,
                     "glossary_path": glossary_path,
                     "correction_path": correction_path,
                 },
@@ -567,6 +682,7 @@ class ScreenRecordingProcessor:
                     "file_size": file_size,
                     "n_frames": len(segments),
                     "n_segments": len(segments),
+                    "timeline_ranges": timeline_ranges,
                 },
                 "config": {
                     "llm_model": self.core.config.get("llm", {}).get("model", "unknown")
