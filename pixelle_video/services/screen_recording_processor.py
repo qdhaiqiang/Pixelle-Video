@@ -103,6 +103,7 @@ class ScreenRecordingProcessor:
         ass_path = work_dir / "subtitles.ass"
         dubbed_audio = work_dir / "dubbing_audio.mp3" if synthesize_dubbing else None
         processed_video = task_dir / "screen_recording_subtitled.mp4"
+        source_duration = self._probe_duration(source_video)
 
         glossary_fixes, glossary_terms = self._parse_glossary(Path(glossary_path)) if glossary_path else ({}, [])
         correction_fixes = self._parse_corrections(Path(correction_path)) if correction_path else {}
@@ -126,6 +127,9 @@ class ScreenRecordingProcessor:
             self._report(progress_callback, "polishing_subtitles", 0.56)
             segments = await self._polish_segments_with_ai(segments, industry_context)
 
+        if source_duration <= 0 and segments:
+            source_duration = max(segment.end for segment in segments)
+
         segments_json.write_text(
             json.dumps([s.__dict__ for s in segments], ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -139,6 +143,7 @@ class ScreenRecordingProcessor:
             await self._synthesize_dubbing(
                 segments,
                 dubbed_audio,
+                target_duration=source_duration,
                 tts_inference_mode=tts_inference_mode,
                 tts_voice=tts_voice,
                 tts_speed=tts_speed,
@@ -154,6 +159,7 @@ class ScreenRecordingProcessor:
             dubbing_audio=dubbed_audio,
             bgm_path=bgm_path,
             bgm_volume=bgm_volume,
+            target_duration=source_duration,
         )
 
         self._report(progress_callback, "exporting_materials", 0.92)
@@ -323,6 +329,7 @@ class ScreenRecordingProcessor:
         self,
         segments: list[SubtitleSegment],
         output_audio: Path,
+        target_duration: float,
         tts_inference_mode: str,
         tts_voice: str,
         tts_speed: float,
@@ -356,15 +363,28 @@ class ScreenRecordingProcessor:
                 if ref_audio:
                     tts_params["ref_audio"] = ref_audio
             await self.core.tts(**tts_params)
-            concat_lines.append(f"file '{seg_audio.resolve()}'")
-            cursor = max(seg.end, seg.start + self._probe_duration(seg_audio))
+            aligned_audio = tts_dir / f"aligned_{idx:03d}.mp3"
+            self._fit_audio_to_duration(
+                input_audio=seg_audio,
+                output_audio=aligned_audio,
+                target_duration=max(0.1, seg.end - seg.start),
+            )
+            concat_lines.append(f"file '{aligned_audio.resolve()}'")
+            cursor = max(cursor, seg.end)
+
+        tail_gap = max(0.0, target_duration - cursor)
+        if tail_gap > 0.03:
+            silence = tts_dir / "silence_tail.mp3"
+            self._make_silence(silence, tail_gap)
+            concat_lines.append(f"file '{silence.resolve()}'")
 
         concat_path = tts_dir / "concat.txt"
         concat_path.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
         subprocess.run(
             [
                 "ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0",
-                "-i", str(concat_path), "-c", "copy", str(output_audio),
+                "-i", str(concat_path), "-t", f"{target_duration:.3f}",
+                "-c:a", "libmp3lame", "-q:a", "4", str(output_audio),
             ],
             check=True,
         )
@@ -377,6 +397,7 @@ class ScreenRecordingProcessor:
         dubbing_audio: Optional[Path],
         bgm_path: Optional[str],
         bgm_volume: float,
+        target_duration: float,
     ) -> None:
         subtitles_filter = f"subtitles={self._ffmpeg_filter_path(subtitles_ass)}"
         if dubbing_audio:
@@ -384,8 +405,8 @@ class ScreenRecordingProcessor:
                 resolved_bgm = VideoService()._resolve_bgm_path(bgm_path)
                 filter_complex = (
                     f"[0:v]{subtitles_filter}[v];"
-                    "[1:a]volume=1.0[voice];"
-                    f"[2:a]volume={bgm_volume}[bgm];"
+                    f"[1:a]volume=1.0,apad,atrim=0:{target_duration:.3f},asetpts=N/SR/TB[voice];"
+                    f"[2:a]volume={bgm_volume},atrim=0:{target_duration:.3f},asetpts=N/SR/TB[bgm];"
                     "[voice][bgm]amix=inputs=2:duration=first:normalize=0[a]"
                 )
                 cmd = [
@@ -396,16 +417,22 @@ class ScreenRecordingProcessor:
                     "-filter_complex", filter_complex,
                     "-map", "[v]", "-map", "[a]",
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
+                    "-c:a", "aac", "-b:a", "192k", "-t", f"{target_duration:.3f}",
+                    "-movflags", "+faststart",
                     str(output_video),
                 ]
             else:
+                filter_complex = (
+                    f"[0:v]{subtitles_filter}[v];"
+                    f"[1:a]apad,atrim=0:{target_duration:.3f},asetpts=N/SR/TB[a]"
+                )
                 cmd = [
                     "ffmpeg", "-hide_banner", "-y", "-i", str(source_video), "-i", str(dubbing_audio),
-                    "-vf", subtitles_filter,
-                    "-map", "0:v", "-map", "1:a",
+                    "-filter_complex", filter_complex,
+                    "-map", "[v]", "-map", "[a]",
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
+                    "-c:a", "aac", "-b:a", "192k", "-t", f"{target_duration:.3f}",
+                    "-movflags", "+faststart",
                     str(output_video),
                 ]
         else:
@@ -675,6 +702,44 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ],
             check=True,
         )
+
+    def _fit_audio_to_duration(self, input_audio: Path, output_audio: Path, target_duration: float) -> None:
+        raw_duration = self._probe_duration(input_audio)
+        if raw_duration <= 0:
+            self._make_silence(output_audio, target_duration)
+            return
+
+        filters = []
+        tempo = raw_duration / target_duration if target_duration > 0 else 1.0
+        if tempo > 1.02:
+            filters.extend(self._atempo_filters(tempo))
+        elif tempo >= 0.75 and tempo < 0.98:
+            filters.extend(self._atempo_filters(tempo))
+        filters.append(f"apad")
+        filters.append(f"atrim=0:{target_duration:.3f}")
+        filters.append("asetpts=N/SR/TB")
+
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-y", "-i", str(input_audio),
+                "-af", ",".join(filters),
+                "-c:a", "libmp3lame", "-q:a", "4", str(output_audio),
+            ],
+            check=True,
+        )
+
+    @staticmethod
+    def _atempo_filters(tempo: float) -> list[str]:
+        filters = []
+        remaining = tempo
+        while remaining > 2.0:
+            filters.append("atempo=2.0")
+            remaining /= 2.0
+        while remaining < 0.5:
+            filters.append("atempo=0.5")
+            remaining /= 0.5
+        filters.append(f"atempo={remaining:.4f}")
+        return filters
 
     @staticmethod
     def _probe_duration(path: Path) -> float:
