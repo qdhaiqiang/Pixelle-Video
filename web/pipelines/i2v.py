@@ -529,9 +529,9 @@ def _list_i2v_workflows():
         for fname in sorted(os.listdir(dir_path)):
             if fname.startswith("i2v_") and fname.endswith(".json"):
                 source_display = {
-                    "dashscope": "Dashscope",
-                    "runninghub": "Runninghub",
-                    "selfhost": "Selfhost",
+                    "dashscope": "阿里云百炼/通义万相" if get_language() == "zh_CN" else "Alibaba Bailian / Tongyi Wanxiang",
+                    "runninghub": tr("asset_based.source.runninghub"),
+                    "selfhost": tr("asset_based.source.selfhost"),
                 }.get(source, source.title())
                 result.append({
                     "key": f"{source}/{fname}",

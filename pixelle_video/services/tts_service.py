@@ -17,7 +17,7 @@ TTS (Text-to-Speech) Service - Supports both local and ComfyUI inference
 import os
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from comfykit import ComfyKit
 from loguru import logger
@@ -50,6 +50,11 @@ class TTSService(ComfyBaseService):
     WORKFLOW_PREFIX = "tts_"
     DEFAULT_WORKFLOW = None  # No hardcoded default, must be configured
     WORKFLOWS_DIR = "workflows"
+    COSYVOICE_WORKFLOW_HINT = (
+        "No CosyVoice TTS workflow found. Export the ComfyUI CosyVoice API workflow "
+        "as workflows/selfhost/tts_cosyvoice.json, or add a RunningHub wrapper named "
+        "workflows/runninghub/tts_cosyvoice.json."
+    )
     
     def __init__(self, config: dict, core=None):
         """
@@ -113,6 +118,9 @@ class TTSService(ComfyBaseService):
         """
         # Determine inference mode (param > config)
         mode = inference_mode or self.config.get("inference_mode", "local")
+        if mode == "cosyvoice":
+            mode = "comfyui"
+            workflow = workflow or self._find_cosyvoice_workflow()
         
         # Route to appropriate implementation
         if mode == "local":
@@ -137,6 +145,45 @@ class TTSService(ComfyBaseService):
                 output_path=output_path,
                 **params
             )
+
+    def list_workflows(self) -> List[Dict[str, Any]]:
+        """List TTS workflows with engine labels for the UI."""
+        workflows = super().list_workflows()
+        for workflow in workflows:
+            engine = self._detect_workflow_engine(workflow)
+            workflow["engine"] = engine
+            if engine == "cosyvoice":
+                workflow["display_name"] = f"CosyVoice - {workflow['source'].title()} ({workflow['name']})"
+            elif engine == "index":
+                workflow["display_name"] = f"IndexTTS - {workflow['source'].title()} ({workflow['name']})"
+            elif engine == "spark":
+                workflow["display_name"] = f"SparkTTS - {workflow['source'].title()} ({workflow['name']})"
+            elif engine == "edge":
+                workflow["display_name"] = f"Edge TTS - {workflow['source'].title()} ({workflow['name']})"
+        return sorted(workflows, key=lambda wf: (0 if wf.get("engine") == "cosyvoice" else 1, wf["key"]))
+
+    def _find_cosyvoice_workflow(self) -> str:
+        """Return the first configured CosyVoice workflow key."""
+        for workflow in self.list_workflows():
+            if workflow.get("engine") == "cosyvoice":
+                return workflow["key"]
+        raise ValueError(self.COSYVOICE_WORKFLOW_HINT)
+
+    @staticmethod
+    def _detect_workflow_engine(workflow: Dict[str, Any]) -> str:
+        text = " ".join(
+            str(workflow.get(key, ""))
+            for key in ("name", "display_name", "key", "workflow_id", "engine", "provider")
+        ).lower()
+        if "cosy" in text or "cosyvoice" in text:
+            return "cosyvoice"
+        if "index" in text:
+            return "index"
+        if "spark" in text:
+            return "spark"
+        if "edge" in text:
+            return "edge"
+        return "workflow"
     
     async def _call_local_tts(
         self,

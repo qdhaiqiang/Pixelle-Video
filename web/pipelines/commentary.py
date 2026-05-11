@@ -430,10 +430,9 @@ class CommentaryPipelineUI(PipelineUI):
                     default_tts_index = tts_workflow_keys.index(saved_tts_workflow)
 
                 tts_workflow_display = st.selectbox(
-                    "TTS Workflow",
+                    tr("tts.voice_selector"),
                     tts_workflow_options if tts_workflow_options else ["No TTS workflows found"],
                     index=default_tts_index,
-                    label_visibility="collapsed",
                     key="commentary_tts_workflow"
                 )
 

@@ -194,6 +194,12 @@ EDGE_TTS_VOICES: List[Dict[str, Any]] = [
     },
 ]
 
+# The UI defaults to Chinese narration text across quick creation, commentary,
+# digital human, and screen-recording flows. Non-Chinese Edge voices frequently
+# return NoAudioReceived for Chinese preview/generation text, so only expose
+# Chinese voices in the built-in local TTS selector.
+EDGE_TTS_VOICES = [voice for voice in EDGE_TTS_VOICES if voice["locale"].startswith("zh-CN")]
+
 
 def get_voice_display_name(voice_id: str, tr_func=None, locale: str = "zh_CN") -> str:
     """
@@ -240,4 +246,3 @@ def speed_to_rate(speed: float) -> str:
     percentage = int((speed - 1.0) * 100)
     sign = "+" if percentage >= 0 else ""
     return f"{sign}{percentage}%"
-

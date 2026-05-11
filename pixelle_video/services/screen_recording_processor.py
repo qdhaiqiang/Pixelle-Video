@@ -1,0 +1,729 @@
+# Copyright (C) 2025 AIDC-AI
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+
+"""Screen recording subtitle and dubbing processor."""
+
+import json
+import re
+import shutil
+import subprocess
+import zipfile
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, Optional
+
+from loguru import logger
+
+from pixelle_video.models.progress import ProgressEvent
+from pixelle_video.utils.os_util import create_task_output_dir
+from pixelle_video.services.video import VideoService
+
+
+@dataclass
+class SubtitleSegment:
+    start: float
+    end: float
+    text: str
+
+
+@dataclass
+class ScreenRecordingResult:
+    task_id: str
+    video_path: str
+    materials_dir: str
+    materials_zip: str
+    srt_path: str
+    ass_path: str
+    segments_json_path: str
+    transcript_json_path: str
+    dubbing_audio_path: Optional[str] = None
+
+
+class ScreenRecordingProcessor:
+    """Process recorded videos into burned-subtitle videos plus editable materials."""
+
+    TERM_FIXES = {
+        "公单": "工单",
+        "以关闭": "已关闭",
+        "已关必": "已关闭",
+        "mark down": "Markdown",
+        "markdown": "Markdown",
+        "MAC当": "Markdown",
+        "马可当": "Markdown",
+    }
+
+    FILLER_PATTERNS = [
+        r"^\s*(嗯|呃|啊|额|就是|然后|那个|这个|就是说)[，,、\s]*",
+        r"[，,、\s]*(嗯|呃|啊|额)[，,、\s]*",
+        r"(然后){2,}",
+        r"(就是){2,}",
+    ]
+
+    def __init__(self, core):
+        self.core = core
+
+    async def process(
+        self,
+        video_path: str,
+        glossary_path: Optional[str] = None,
+        correction_path: Optional[str] = None,
+        industry_context: str = "",
+        whisper_model: str = "small",
+        language: str = "zh",
+        ai_polish: bool = True,
+        synthesize_dubbing: bool = False,
+        tts_inference_mode: str = "local",
+        tts_voice: str = "zh-CN-XiaoxiaoNeural",
+        tts_speed: float = 1.0,
+        tts_workflow: Optional[str] = None,
+        ref_audio: Optional[str] = None,
+        bgm_path: Optional[str] = None,
+        bgm_volume: float = 0.10,
+        progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
+    ) -> ScreenRecordingResult:
+        self._report(progress_callback, "initializing", 0.02)
+
+        source_video = Path(video_path).expanduser().resolve()
+        if not source_video.exists():
+            raise FileNotFoundError(f"Video not found: {source_video}")
+
+        task_dir_str, task_id = create_task_output_dir()
+        task_dir = Path(task_dir_str)
+        work_dir = task_dir / "screen_recording_work"
+        materials_dir = task_dir / "screen_recording_materials"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        materials_dir.mkdir(parents=True, exist_ok=True)
+
+        wav_path = work_dir / "source_16k.wav"
+        transcript_json = work_dir / "transcript.json"
+        segments_json = work_dir / "segments.json"
+        srt_path = work_dir / "subtitles.srt"
+        ass_path = work_dir / "subtitles.ass"
+        dubbed_audio = work_dir / "dubbing_audio.mp3" if synthesize_dubbing else None
+        processed_video = task_dir / "screen_recording_subtitled.mp4"
+
+        glossary_fixes, glossary_terms = self._parse_glossary(Path(glossary_path)) if glossary_path else ({}, [])
+        correction_fixes = self._parse_corrections(Path(correction_path)) if correction_path else {}
+
+        self._report(progress_callback, "extracting_audio", 0.08)
+        self._extract_audio(source_video, wav_path)
+
+        self._report(progress_callback, "transcribing_audio", 0.18)
+        transcript = self._transcribe(
+            wav_path,
+            transcript_json,
+            model=whisper_model,
+            language=language,
+            glossary_terms=glossary_terms,
+        )
+
+        self._report(progress_callback, "cleaning_subtitles", 0.45)
+        segments = self._build_segments(transcript, glossary_fixes, correction_fixes)
+
+        if ai_polish and segments:
+            self._report(progress_callback, "polishing_subtitles", 0.56)
+            segments = await self._polish_segments_with_ai(segments, industry_context)
+
+        segments_json.write_text(
+            json.dumps([s.__dict__ for s in segments], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self._write_srt(segments, srt_path)
+        self._write_ass(segments, ass_path)
+
+        if synthesize_dubbing:
+            self._report(progress_callback, "synthesizing_dubbing", 0.68)
+            assert dubbed_audio is not None
+            await self._synthesize_dubbing(
+                segments,
+                dubbed_audio,
+                tts_inference_mode=tts_inference_mode,
+                tts_voice=tts_voice,
+                tts_speed=tts_speed,
+                tts_workflow=tts_workflow,
+                ref_audio=ref_audio,
+            )
+
+        self._report(progress_callback, "rendering_video", 0.82)
+        self._render_video(
+            source_video=source_video,
+            subtitles_ass=ass_path,
+            output_video=processed_video,
+            dubbing_audio=dubbed_audio,
+            bgm_path=bgm_path,
+            bgm_volume=bgm_volume,
+        )
+
+        self._report(progress_callback, "exporting_materials", 0.92)
+        materials_zip = self._export_materials(
+            source_video=source_video,
+            processed_video=processed_video,
+            materials_dir=materials_dir,
+            srt_path=srt_path,
+            ass_path=ass_path,
+            segments_json=segments_json,
+            transcript_json=transcript_json,
+            dubbing_audio=dubbed_audio,
+            bgm_path=bgm_path,
+            glossary_path=Path(glossary_path) if glossary_path else None,
+            correction_path=Path(correction_path) if correction_path else None,
+        )
+
+        await self._persist_history_data(
+            task_id=task_id,
+            source_video=source_video,
+            processed_video=processed_video,
+            materials_dir=materials_dir,
+            materials_zip=materials_zip,
+            srt_path=srt_path,
+            ass_path=ass_path,
+            segments=segments,
+            industry_context=industry_context,
+            whisper_model=whisper_model,
+            language=language,
+            ai_polish=ai_polish,
+            synthesize_dubbing=synthesize_dubbing,
+            tts_inference_mode=tts_inference_mode,
+            tts_voice=tts_voice,
+            tts_speed=tts_speed,
+            tts_workflow=tts_workflow,
+            bgm_path=bgm_path,
+            bgm_volume=bgm_volume,
+            glossary_path=glossary_path,
+            correction_path=correction_path,
+        )
+
+        self._report(progress_callback, "completed", 1.0)
+        return ScreenRecordingResult(
+            task_id=task_id,
+            video_path=str(processed_video),
+            materials_dir=str(materials_dir),
+            materials_zip=str(materials_zip),
+            srt_path=str(srt_path),
+            ass_path=str(ass_path),
+            segments_json_path=str(segments_json),
+            transcript_json_path=str(transcript_json),
+            dubbing_audio_path=str(dubbed_audio) if dubbed_audio else None,
+        )
+
+    def _transcribe(
+        self,
+        wav_path: Path,
+        transcript_json: Path,
+        model: str,
+        language: str,
+        glossary_terms: list[str],
+    ) -> dict:
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as e:
+            raise RuntimeError(
+                "录屏处理需要 faster-whisper。请安装依赖：uv pip install faster-whisper"
+            ) from e
+
+        initial_prompt = None
+        if glossary_terms:
+            initial_prompt = "请准确识别以下专业术语：" + "、".join(glossary_terms[:80])
+
+        whisper = WhisperModel(model, device="cpu", compute_type="int8")
+        kwargs = {"language": language, "word_timestamps": False}
+        if initial_prompt:
+            kwargs["initial_prompt"] = initial_prompt
+        segments, info = whisper.transcribe(str(wav_path), **kwargs)
+
+        output_segments = []
+        for segment in segments:
+            output_segments.append(
+                {
+                    "id": len(output_segments),
+                    "start": float(segment.start),
+                    "end": float(segment.end),
+                    "text": segment.text.strip(),
+                }
+            )
+        result = {
+            "text": "".join(s["text"] for s in output_segments),
+            "segments": output_segments,
+            "language": getattr(info, "language", language),
+        }
+        transcript_json.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        return result
+
+    def _build_segments(
+        self,
+        transcript: dict,
+        glossary_fixes: dict[str, str],
+        correction_fixes: dict[str, str],
+    ) -> list[SubtitleSegment]:
+        fixes = dict(self.TERM_FIXES)
+        fixes.update(glossary_fixes)
+        fixes.update(correction_fixes)
+
+        result = []
+        for item in transcript.get("segments", []):
+            text = self._clean_text(item.get("text", ""), fixes)
+            if not text:
+                continue
+            result.append(
+                SubtitleSegment(
+                    start=float(item["start"]),
+                    end=float(item["end"]),
+                    text=text,
+                )
+            )
+        if not result:
+            raise RuntimeError("No speech segments found in the input video")
+        return result
+
+    async def _polish_segments_with_ai(
+        self,
+        segments: list[SubtitleSegment],
+        industry_context: str,
+    ) -> list[SubtitleSegment]:
+        if not self.core.llm:
+            return segments
+
+        prompt_segments = [
+            {"index": i + 1, "start": s.start, "end": s.end, "text": s.text}
+            for i, s in enumerate(segments)
+        ]
+        prompt = (
+            "你是录屏教程字幕编辑。请修正以下 ASR 字幕，使其适合视频所在行业。\n"
+            "要求：\n"
+            "1. 去掉口语填充词，例如 嗯、呃、啊、然后然后、这个那个 等。\n"
+            "2. 保留原意和时间顺序，不要扩写，不要增加原文没有的信息。\n"
+            "3. 保留专业术语、产品名、英文缩写、菜单名。\n"
+            "4. 每条字幕尽量短，适合直接显示在视频底部。\n"
+            "5. 只输出 JSON：{\"segments\":[{\"index\":1,\"text\":\"...\"}]}。\n\n"
+            f"行业/业务背景：{industry_context or '未提供'}\n\n"
+            f"字幕：{json.dumps(prompt_segments, ensure_ascii=False)}"
+        )
+        try:
+            response = await self.core.llm(prompt=prompt, max_tokens=6000, temperature=0.1)
+            match = re.search(r"\{[\s\S]*\}", str(response))
+            if not match:
+                return segments
+            data = json.loads(match.group())
+            corrected = {
+                int(item["index"]): str(item["text"]).strip()
+                for item in data.get("segments", [])
+                if item.get("index") and item.get("text")
+            }
+            polished = []
+            for i, seg in enumerate(segments, start=1):
+                polished.append(SubtitleSegment(seg.start, seg.end, corrected.get(i, seg.text)))
+            return polished
+        except Exception as e:
+            logger.warning(f"AI subtitle polish failed, using rule-cleaned subtitles: {e}")
+            return segments
+
+    async def _synthesize_dubbing(
+        self,
+        segments: list[SubtitleSegment],
+        output_audio: Path,
+        tts_inference_mode: str,
+        tts_voice: str,
+        tts_speed: float,
+        tts_workflow: Optional[str],
+        ref_audio: Optional[str],
+    ) -> None:
+        tts_dir = output_audio.parent / "tts_segments"
+        tts_dir.mkdir(parents=True, exist_ok=True)
+
+        concat_lines: list[str] = []
+        cursor = 0.0
+        for idx, seg in enumerate(segments):
+            gap = max(0.0, seg.start - cursor)
+            if gap > 0.03:
+                silence = tts_dir / f"silence_{idx:03d}.mp3"
+                self._make_silence(silence, gap)
+                concat_lines.append(f"file '{silence.resolve()}'")
+
+            seg_audio = tts_dir / f"tts_{idx:03d}.mp3"
+            tts_params = {
+                "text": seg.text,
+                "inference_mode": tts_inference_mode,
+                "output_path": str(seg_audio),
+            }
+            if tts_inference_mode == "local":
+                tts_params["voice"] = tts_voice
+                tts_params["speed"] = tts_speed
+            else:
+                if tts_workflow:
+                    tts_params["workflow"] = tts_workflow
+                if ref_audio:
+                    tts_params["ref_audio"] = ref_audio
+            await self.core.tts(**tts_params)
+            concat_lines.append(f"file '{seg_audio.resolve()}'")
+            cursor = max(seg.end, seg.start + self._probe_duration(seg_audio))
+
+        concat_path = tts_dir / "concat.txt"
+        concat_path.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(concat_path), "-c", "copy", str(output_audio),
+            ],
+            check=True,
+        )
+
+    def _render_video(
+        self,
+        source_video: Path,
+        subtitles_ass: Path,
+        output_video: Path,
+        dubbing_audio: Optional[Path],
+        bgm_path: Optional[str],
+        bgm_volume: float,
+    ) -> None:
+        subtitles_filter = f"subtitles={self._ffmpeg_filter_path(subtitles_ass)}"
+        if dubbing_audio:
+            if bgm_path:
+                resolved_bgm = VideoService()._resolve_bgm_path(bgm_path)
+                filter_complex = (
+                    f"[0:v]{subtitles_filter}[v];"
+                    "[1:a]volume=1.0[voice];"
+                    f"[2:a]volume={bgm_volume}[bgm];"
+                    "[voice][bgm]amix=inputs=2:duration=first:normalize=0[a]"
+                )
+                cmd = [
+                    "ffmpeg", "-hide_banner", "-y",
+                    "-i", str(source_video),
+                    "-i", str(dubbing_audio),
+                    "-stream_loop", "-1", "-i", resolved_bgm,
+                    "-filter_complex", filter_complex,
+                    "-map", "[v]", "-map", "[a]",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
+                    str(output_video),
+                ]
+            else:
+                cmd = [
+                    "ffmpeg", "-hide_banner", "-y", "-i", str(source_video), "-i", str(dubbing_audio),
+                    "-vf", subtitles_filter,
+                    "-map", "0:v", "-map", "1:a",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-c:a", "aac", "-b:a", "192k", "-shortest", "-movflags", "+faststart",
+                    str(output_video),
+                ]
+        else:
+            cmd = [
+                "ffmpeg", "-hide_banner", "-y", "-i", str(source_video),
+                "-vf", subtitles_filter,
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                "-c:a", "copy", "-movflags", "+faststart", str(output_video),
+            ]
+        subprocess.run(cmd, check=True)
+
+    def _export_materials(
+        self,
+        source_video: Path,
+        processed_video: Path,
+        materials_dir: Path,
+        srt_path: Path,
+        ass_path: Path,
+        segments_json: Path,
+        transcript_json: Path,
+        dubbing_audio: Optional[Path],
+        bgm_path: Optional[str],
+        glossary_path: Optional[Path],
+        correction_path: Optional[Path],
+    ) -> Path:
+        self._copy_or_link(source_video, materials_dir / "01_original_video" / source_video.name)
+        self._copy_or_link(processed_video, materials_dir / "02_processed_video" / processed_video.name)
+        self._copy_or_link(srt_path, materials_dir / "03_subtitles" / "subtitles.srt")
+        self._copy_or_link(ass_path, materials_dir / "03_subtitles" / "subtitles.ass")
+        self._copy_or_link(segments_json, materials_dir / "04_transcript" / "segments.json")
+        self._copy_or_link(transcript_json, materials_dir / "04_transcript" / "transcript.json")
+        if dubbing_audio and dubbing_audio.exists():
+            self._copy_or_link(dubbing_audio, materials_dir / "05_dubbing" / "dubbing_audio.mp3")
+        if bgm_path:
+            resolved_bgm = Path(VideoService()._resolve_bgm_path(bgm_path))
+            self._copy_or_link(resolved_bgm, materials_dir / "07_bgm" / resolved_bgm.name)
+        if glossary_path and glossary_path.exists():
+            self._copy_or_link(glossary_path, materials_dir / "06_rules" / glossary_path.name)
+        if correction_path and correction_path.exists():
+            self._copy_or_link(correction_path, materials_dir / "06_rules" / correction_path.name)
+
+        readme = materials_dir / "README.md"
+        readme.write_text(
+            "# 录屏处理素材包\n\n"
+            "- `01_original_video/`: 原始录屏视频\n"
+            "- `02_processed_video/`: 已烧录字幕的视频\n"
+            "- `03_subtitles/`: 可导入剪映继续编辑的 SRT/ASS 字幕\n"
+            "- `04_transcript/`: ASR 原始结果与清洗后的分段\n"
+            "- `05_dubbing/`: 可选配音合成音频\n"
+            "- `06_rules/`: 本次使用的术语/修正规则文件\n"
+            "- `07_bgm/`: 本次选择的背景音乐\n",
+            encoding="utf-8",
+        )
+
+        zip_path = materials_dir.parent / f"{materials_dir.name}.zip"
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for path in materials_dir.rglob("*"):
+                if path.is_file():
+                    zf.write(path, path.relative_to(materials_dir.parent))
+        return zip_path
+
+    async def _persist_history_data(
+        self,
+        task_id: str,
+        source_video: Path,
+        processed_video: Path,
+        materials_dir: Path,
+        materials_zip: Path,
+        srt_path: Path,
+        ass_path: Path,
+        segments: list[SubtitleSegment],
+        industry_context: str,
+        whisper_model: str,
+        language: str,
+        ai_polish: bool,
+        synthesize_dubbing: bool,
+        tts_inference_mode: str,
+        tts_voice: str,
+        tts_speed: float,
+        tts_workflow: Optional[str],
+        bgm_path: Optional[str],
+        bgm_volume: float,
+        glossary_path: Optional[str],
+        correction_path: Optional[str],
+    ) -> None:
+        if not getattr(self.core, "persistence", None):
+            logger.warning("No persistence service available, skipping screen recording history")
+            return
+
+        try:
+            duration = self._probe_duration(processed_video)
+            file_size = processed_video.stat().st_size if processed_video.exists() else 0
+            title = source_video.stem or "Screen Recording"
+            now = datetime.now().isoformat()
+            text_preview = " ".join(seg.text for seg in segments[:8])
+
+            metadata = {
+                "task_id": task_id,
+                "title": title,
+                "created_at": now,
+                "completed_at": now,
+                "status": "completed",
+                "pipeline": "screen_recording",
+                "input": {
+                    "title": title,
+                    "text": text_preview,
+                    "mode": "screen_recording",
+                    "n_scenes": len(segments),
+                    "source_video": str(source_video),
+                    "industry_context": industry_context,
+                    "whisper_model": whisper_model,
+                    "language": language,
+                    "ai_polish": ai_polish,
+                    "synthesize_dubbing": synthesize_dubbing,
+                    "tts_inference_mode": tts_inference_mode,
+                    "tts_voice": tts_voice,
+                    "tts_speed": tts_speed,
+                    "tts_workflow": tts_workflow,
+                    "bgm_path": bgm_path,
+                    "bgm_volume": bgm_volume,
+                    "glossary_path": glossary_path,
+                    "correction_path": correction_path,
+                },
+                "result": {
+                    "video_path": str(processed_video),
+                    "video_paths": [str(processed_video)],
+                    "materials_dir": str(materials_dir),
+                    "materials_zip": str(materials_zip),
+                    "srt_path": str(srt_path),
+                    "ass_path": str(ass_path),
+                    "duration": duration,
+                    "file_size": file_size,
+                    "n_frames": len(segments),
+                    "n_segments": len(segments),
+                },
+                "config": {
+                    "llm_model": self.core.config.get("llm", {}).get("model", "unknown")
+                    if getattr(self.core, "config", None)
+                    else "unknown",
+                },
+            }
+            await self.core.persistence.save_task_metadata(task_id, metadata)
+            logger.info(f"💾 Saved screen recording task metadata: {task_id}")
+        except Exception as e:
+            logger.error(f"Failed to persist screen recording history: {e}")
+
+    @classmethod
+    def _parse_glossary(cls, path: Path) -> tuple[dict[str, str], list[str]]:
+        if not path.exists():
+            return {}, []
+        fixes: dict[str, str] = {}
+        terms: list[str] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("|") or "---" in stripped:
+                continue
+            parts = [p.strip().strip("*") for p in stripped.split("|")]
+            if len(parts) >= 4:
+                correct = parts[1]
+                aliases = [a.strip() for a in re.split(r"[,，、]", parts[3]) if a.strip()]
+                if correct and correct not in ("术语", "正确文本"):
+                    terms.append(correct)
+                for alias in aliases:
+                    if alias and correct and alias != correct:
+                        fixes[alias] = correct
+                        terms.append(alias)
+        return fixes, list(dict.fromkeys(terms))
+
+    @classmethod
+    def _parse_corrections(cls, path: Path) -> dict[str, str]:
+        if not path.exists():
+            return {}
+        content = path.read_text(encoding="utf-8")
+        fixes: dict[str, str] = {}
+        rows = re.findall(r"\|([^|]+)\|([^|]+)\|(?:[^|]*\|)?", content)
+        for wrong, right in rows:
+            wrong = wrong.strip()
+            right = right.strip()
+            if wrong and right and wrong not in ("错误识别", "错误文本", "---") and right not in ("正确文本", "---"):
+                if wrong != right:
+                    fixes[wrong] = right
+        return fixes
+
+    @classmethod
+    def _clean_text(cls, text: str, fixes: dict[str, str]) -> str:
+        text = text.strip()
+        for src, dst in fixes.items():
+            text = text.replace(src, dst)
+        for pattern in cls.FILLER_PATTERNS:
+            text = re.sub(pattern, "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        text = text.strip("，,、 ")
+        if text and text[-1] not in "。！？.!?":
+            text += "。"
+        return text
+
+    @staticmethod
+    def _write_srt(segments: list[SubtitleSegment], output: Path) -> None:
+        lines = []
+        for idx, seg in enumerate(segments, start=1):
+            lines.extend([
+                str(idx),
+                f"{ScreenRecordingProcessor._timestamp_srt(seg.start)} --> {ScreenRecordingProcessor._timestamp_srt(seg.end)}",
+                seg.text,
+                "",
+            ])
+        output.write_text("\n".join(lines), encoding="utf-8")
+
+    @staticmethod
+    def _write_ass(segments: list[SubtitleSegment], output: Path) -> None:
+        header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H00000000,&H00000000,&H70000000,0,0,0,0,100,100,0,0,1,3,1,2,80,80,70,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+        lines = [header]
+        for seg in segments:
+            text = seg.text.replace("\n", " ").replace(",", "，")
+            lines.append(
+                f"Dialogue: 0,{ScreenRecordingProcessor._timestamp_ass(seg.start)},"
+                f"{ScreenRecordingProcessor._timestamp_ass(seg.end)},Default,,0,0,0,,{text}\n"
+            )
+        output.write_text("".join(lines), encoding="utf-8")
+
+    @staticmethod
+    def _timestamp_srt(seconds: float) -> str:
+        ms_total = int(round(seconds * 1000))
+        h, rem = divmod(ms_total, 3600_000)
+        m, rem = divmod(rem, 60_000)
+        s, ms = divmod(rem, 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    @staticmethod
+    def _timestamp_ass(seconds: float) -> str:
+        cs_total = int(round(seconds * 100))
+        h, rem = divmod(cs_total, 3600 * 100)
+        m, rem = divmod(rem, 60 * 100)
+        s, cs = divmod(rem, 100)
+        return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+    @staticmethod
+    def _extract_audio(video: Path, output_wav: Path) -> None:
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-y", "-i", str(video),
+                "-vn", "-ac", "1", "-ar", "16000", str(output_wav),
+            ],
+            check=True,
+        )
+
+    @staticmethod
+    def _make_silence(output: Path, duration: float) -> None:
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i",
+                "anullsrc=r=44100:cl=stereo", "-t", f"{duration:.3f}",
+                "-c:a", "libmp3lame", str(output),
+            ],
+            check=True,
+        )
+
+    @staticmethod
+    def _probe_duration(path: Path) -> float:
+        try:
+            out = subprocess.check_output(
+                [
+                    "ffprobe", "-hide_banner", "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    str(path),
+                ],
+                text=True,
+            )
+            return float(out.strip())
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _has_audio_stream(path: Path) -> bool:
+        try:
+            out = subprocess.check_output(
+                [
+                    "ffprobe", "-hide_banner", "-v", "error",
+                    "-select_streams", "a",
+                    "-show_entries", "stream=codec_type",
+                    "-of", "json", str(path),
+                ],
+                text=True,
+            )
+            data = json.loads(out)
+            return bool(data.get("streams"))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _ffmpeg_filter_path(path: Path) -> str:
+        return str(path.resolve()).replace("\\", "\\\\").replace(":", "\\:")
+
+    @staticmethod
+    def _copy_or_link(src: Path, dst: Path) -> None:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if dst.exists():
+            dst.unlink()
+        try:
+            dst.symlink_to(src.resolve())
+        except Exception:
+            shutil.copy2(src, dst)
+
+    @staticmethod
+    def _report(callback: Optional[Callable[[ProgressEvent], None]], event_type: str, progress: float) -> None:
+        if callback:
+            callback(ProgressEvent(event_type=event_type, progress=progress))

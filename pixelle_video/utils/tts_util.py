@@ -166,6 +166,11 @@ async def edge_tts(
                         audio_chunks.append(chunk["data"])
                 
                 audio_data = b"".join(audio_chunks)
+                if not audio_data:
+                    raise RuntimeError(
+                        f"No audio was received for voice={voice}. "
+                        "Please choose a voice that matches the text language."
+                    )
                 
                 if attempt > 0:
                     logger.success(f"✅ Retry succeeded on attempt {attempt + 1}")
@@ -208,7 +213,10 @@ async def edge_tts(
                 
                 if attempt >= retry_count:
                     logger.error(f"❌ All {retry_count + 1} attempts failed due to NoAudioReceived")
-                    raise
+                    raise RuntimeError(
+                        f"No audio was received for voice={voice}. "
+                        "The selected voice may not support the text language, or the Edge TTS service is temporarily unavailable."
+                    ) from e
                 # Add extra delay for NoAudioReceived errors
                 await asyncio.sleep(2.0)
             
@@ -345,4 +353,3 @@ async def list_voices(locale: str = None, retry_count: int = _RETRY_COUNT, retry
             raise last_error
         else:
             raise RuntimeError("List voices failed without error (unexpected)")
-

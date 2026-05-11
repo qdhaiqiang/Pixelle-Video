@@ -30,6 +30,7 @@ from web.pipelines import digital_human
 from web.pipelines import i2v
 from web.pipelines import action_transfer
 from web.pipelines import commentary
+from web.pipelines import screen_recording
 
 __all__ = [
     "PipelineUI",

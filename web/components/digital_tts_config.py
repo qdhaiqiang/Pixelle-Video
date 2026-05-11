@@ -22,6 +22,7 @@ from loguru import logger
 
 from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
+from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
 
 
@@ -122,7 +123,31 @@ def render_style_config(pixelle_video):
         # ComfyUI Mode UI
         # ================================================================
         else:  # comfyui mode
-            tts_workflow_key = "runninghub/tts_index2.json"  # fallback
+            # Get available TTS workflows. CosyVoice is exposed by placing a
+            # tts_cosyvoice.json workflow under workflows/selfhost or runninghub.
+            tts_workflows = pixelle_video.tts.list_workflows()
+            tts_workflow_options = [wf["display_name"] for wf in tts_workflows]
+            tts_workflow_keys = [wf["key"] for wf in tts_workflows]
+
+            default_tts_index = 0
+            saved_tts_workflow = tts_config.get("comfyui", {}).get("default_workflow")
+            if saved_tts_workflow and saved_tts_workflow in tts_workflow_keys:
+                default_tts_index = tts_workflow_keys.index(saved_tts_workflow)
+
+            tts_workflow_display = st.selectbox(
+                tr("tts.voice_selector"),
+                tts_workflow_options if tts_workflow_options else ["No TTS workflows found"],
+                index=default_tts_index,
+                key="digital_tts_workflow_select"
+            )
+
+            if tts_workflow_options:
+                tts_selected_index = tts_workflow_options.index(tts_workflow_display)
+                tts_workflow_key = tts_workflow_keys[tts_selected_index]
+            else:
+                tts_workflow_key = "selfhost/tts_edge.json"
+
+            check_and_warn_selfhost_workflow(tts_workflow_key)
             
             # Reference audio upload (optional, for voice cloning)
             ref_audio_file = st.file_uploader(

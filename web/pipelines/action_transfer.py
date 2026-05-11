@@ -93,16 +93,13 @@ class ActionTransferPipelineUI(PipelineUI):
                 
                 st.success(tr("action_transfer.assets.video_sucess"))
                 
-                # Preview uploaded assets
-                with st.expander(tr("action_transfer.assets.preview"), expanded=True):
-                    # Show in a grid (3 columns)
-                    cols = st.columns(3)
-                    for i, (file, path) in enumerate(zip(uploaded_files, video_asset_paths)):
-                        with cols[i % 3]:
-                            # Check if image
-                            ext = Path(path).suffix.lower()
-                            if ext in [".mp4", ".mkv", ".mov"]:
-                                st.video(file)
+                cols = st.columns(3)
+                for i, (file, path) in enumerate(zip(uploaded_files, video_asset_paths)):
+                    with cols[i % 3]:
+                        ext = Path(path).suffix.lower()
+                        if ext in [".mp4", ".mkv", ".mov"]:
+                            st.video(file)
+                            st.caption(file.name)
             else:
                 st.info(tr("action_transfer.assets.video_empty_hint"))
             
@@ -154,22 +151,20 @@ class ActionTransferPipelineUI(PipelineUI):
                 
                 st.success(tr("action_transfer.assets.image_sucess"))
                 
-                # Preview uploaded assets
-                with st.expander(tr("action_transfer.assets.preview"), expanded=True):
-                    # Show in a grid (3 columns)
-                    cols = st.columns(3)
-                    for i, (file, path) in enumerate(zip(uploaded_files, image_asset_paths)):
-                        with cols[i % 3]:
-                            # Check if image
-                            ext = Path(path).suffix.lower()
-                            if ext in [".jpg", ".jpeg", ".png", ".webp"]:
-                                st.image(file, caption=file.name, use_container_width=True)
+                cols = st.columns(3)
+                for i, (file, path) in enumerate(zip(uploaded_files, image_asset_paths)):
+                    with cols[i % 3]:
+                        ext = Path(path).suffix.lower()
+                        if ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                            st.image(file, caption=file.name, use_container_width=True)
             else:
                 st.info(tr("action_transfer.assets.image_empty_hint"))
             
-            def list_action_transfer_workflows():
+            def list_action_transfer_workflows(source_filter: str | None = None):
                 result = []
                 for source in ("runninghub", "selfhost"):
+                    if source_filter and source != source_filter:
+                        continue
                     dir_path = os.path.join("workflows", source)
                     if not os.path.isdir(dir_path):
                         continue
@@ -190,7 +185,31 @@ class ActionTransferPipelineUI(PipelineUI):
                         key="prompt_box"
                         )
             
-            transfer_workflows = list_action_transfer_workflows()
+            source_options = {
+                "runninghub": tr("asset_based.source.runninghub"),
+                "selfhost": tr("asset_based.source.selfhost"),
+            }
+            workflow_source = st.radio(
+                tr("asset_based.source.select"),
+                options=list(source_options.keys()),
+                format_func=lambda x: source_options[x],
+                horizontal=True,
+                key="action_transfer_workflow_source",
+            )
+
+            comfyui_config = config_manager.get_comfyui_config()
+            if workflow_source == "runninghub":
+                if not comfyui_config.get("runninghub_api_key"):
+                    st.warning(tr("asset_based.source.runninghub_not_configured"))
+                else:
+                    st.info(tr("asset_based.source.runninghub_hint"))
+            else:
+                if not comfyui_config.get("comfyui_url"):
+                    st.warning(tr("asset_based.source.selfhost_not_configured"))
+                else:
+                    st.info(tr("asset_based.source.selfhost_hint"))
+
+            transfer_workflows = list_action_transfer_workflows(workflow_source)
             workflow_options = [wf["display_name"] for wf in transfer_workflows] 
             workflow_keys = [wf["key"] for wf in transfer_workflows]               
             default_workflow_index = 0
@@ -199,7 +218,6 @@ class ActionTransferPipelineUI(PipelineUI):
                 tr("action_transfer.workflow_select"),
                 workflow_options if workflow_options else ["No workflow found"],
                 index=default_workflow_index,
-                label_visibility="collapsed",
                 key="action_transfer_workflow_select"
             )
 
@@ -210,12 +228,14 @@ class ActionTransferPipelineUI(PipelineUI):
                 workflow_key = None
             
             # Check and warn for selfhost workflow (auto popup if not confirmed)
-            check_and_warn_selfhost_workflow(workflow_key)
+            if workflow_key:
+                check_and_warn_selfhost_workflow(workflow_key)
             
             return {
                 "image_assets": image_asset_paths,
                 "prompt_text": prompt_text,
-                "workflow_key": workflow_key
+                "workflow_key": workflow_key,
+                "workflow_source": workflow_source
                 }
 
     def _render_output_preview(self, pixelle_video: Any, video_params: dict):
@@ -265,6 +285,17 @@ class ActionTransferPipelineUI(PipelineUI):
                     use_container_width=True,
                     disabled=True,
                     key="action_transfer_generate"
+                )
+                return
+
+            if not workflow_key:
+                st.info("请先选择可用的动作迁移工作流。" if get_language() == "zh_CN" else "Please select an available action transfer workflow.")
+                st.button(
+                    tr("btn.generate"),
+                    type="primary",
+                    use_container_width=True,
+                    disabled=True,
+                    key="action_transfer_generate_workflow_disabled"
                 )
                 return
 
