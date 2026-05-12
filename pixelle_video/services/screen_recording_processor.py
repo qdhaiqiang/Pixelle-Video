@@ -377,6 +377,12 @@ class ScreenRecordingProcessor:
             return left + right
         return left + "，" + right
 
+    @staticmethod
+    def _display_text(text: str) -> str:
+        text = re.sub(r"[。．]+", "", text)
+        text = re.sub(r"(?<![A-Za-z0-9])\.|\.(?![A-Za-z0-9])", "", text)
+        return text.strip()
+
     async def _polish_segments_with_ai(
         self,
         segments: list[SubtitleSegment],
@@ -914,7 +920,11 @@ class ScreenRecordingProcessor:
             lines.extend([
                 str(idx),
                 f"{ScreenRecordingProcessor._timestamp_srt(seg.start)} --> {ScreenRecordingProcessor._timestamp_srt(seg.end)}",
-                ScreenRecordingProcessor._wrap_caption_text(seg.text, max_chars=22, line_break="\n"),
+                ScreenRecordingProcessor._wrap_caption_text(
+                    ScreenRecordingProcessor._display_text(seg.text),
+                    max_chars=22,
+                    line_break="\n",
+                ),
                 "",
             ])
         output.write_text("\n".join(lines), encoding="utf-8")
@@ -938,7 +948,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         lines = [header]
         for seg in ScreenRecordingProcessor._caption_events(segments):
             text = ScreenRecordingProcessor._wrap_caption_text(
-                seg.text.replace("\n", " ").replace(",", "，"),
+                ScreenRecordingProcessor._display_text(seg.text).replace("\n", " ").replace(",", "，"),
                 max_chars=22,
                 line_break=r"\N",
             )
