@@ -426,6 +426,7 @@
     "screen_recording.input.video_path_help": "必须是运行 Pixelle-Video 的服务器本地可访问路径。",
     "screen_recording.input.video_found": "视频文件已找到",
     "screen_recording.input.video_missing": "视频不存在：{path}",
+    "screen_recording.input.path_is_directory": "当前路径是文件夹，不是视频文件：{path}。请填写具体视频文件路径，例如 /Users/name/Movies/demo.mp4",
     "screen_recording.input.glossary_upload": "上传业务专有名词 Markdown",
     "screen_recording.input.glossary_help": "用于告诉系统哪些词是业务标准写法。支持 Markdown 表格，建议包含「术语」和「别名/误识别」列。\n\n示例：\n\n| 术语 | 说明 | 别名/误识别 |\n| --- | --- | --- |\n| 工单 | 生产任务单 | 公单, 攻单 |\n| Recipe | 配方名称 | 瑞西皮, 配方 |\n| Batch | 批次 | 八尺, 批号 |\n| PLC | 控制器 | P L C, 皮埃尔西 |\n\n处理时会把「别名/误识别」中的文本修正为「术语」列的标准写法。",
     "screen_recording.input.correction_upload": "上传多音词/ASR 修正 Markdown",

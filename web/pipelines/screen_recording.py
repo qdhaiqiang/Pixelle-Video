@@ -61,9 +61,11 @@ class ScreenRecordingPipelineUI(PipelineUI):
 
             if video_path:
                 preview_path = Path(video_path).expanduser()
-                if preview_path.exists():
+                if preview_path.is_file():
                     st.success(tr("screen_recording.input.video_found"))
                     st.video(str(preview_path))
+                elif preview_path.is_dir():
+                    st.error(tr("screen_recording.input.path_is_directory", path=preview_path))
                 else:
                     st.error(tr("screen_recording.input.video_missing", path=preview_path))
 
@@ -381,7 +383,10 @@ class ScreenRecordingPipelineUI(PipelineUI):
                 return
 
             video_path = Path(params["video_path"]).expanduser()
-            if not video_path.exists():
+            if video_path.is_dir():
+                st.warning(tr("screen_recording.input.path_is_directory", path=video_path))
+                return
+            if not video_path.is_file():
                 st.warning(tr("screen_recording.input.video_missing", path=video_path))
                 return
 

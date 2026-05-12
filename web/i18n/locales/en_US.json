@@ -407,6 +407,7 @@
     "screen_recording.input.video_path_help": "Must be a local path accessible to the server running Pixelle-Video.",
     "screen_recording.input.video_found": "Video file found",
     "screen_recording.input.video_missing": "Video does not exist: {path}",
+    "screen_recording.input.path_is_directory": "The current path is a folder, not a video file: {path}. Enter a specific video file path, for example /Users/name/Movies/demo.mp4",
     "screen_recording.input.glossary_upload": "Upload Business Terminology Markdown",
     "screen_recording.input.glossary_help": "Use this to define standard business terms. Markdown tables are supported. Recommended columns: Term and Alias/Misrecognition.\n\nExample:\n\n| Term | Description | Alias/Misrecognition |\n| --- | --- | --- |\n| Work Order | Production task order | workorder, order |\n| Recipe | Formula name | receipe, formula |\n| Batch | Batch number | badge, lot |\n| PLC | Controller | P L C, controller |\n\nDuring processing, text in Alias/Misrecognition will be corrected to the standard Term.",
     "screen_recording.input.correction_upload": "Upload Polyphone/ASR Correction Markdown",
