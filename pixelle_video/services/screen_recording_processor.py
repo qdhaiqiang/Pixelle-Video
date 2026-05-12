@@ -454,7 +454,13 @@ class ScreenRecordingProcessor:
         remapped_segments: list[SubtitleSegment] = []
         cursor = 0.0
         inter_segment_gap = 0.22
-        lead_padding = 0.12
+        first_preroll = 1.0
+
+        if first_preroll > 0.03:
+            preroll = tts_dir / "gap_preroll.mp3"
+            self._make_silence(preroll, first_preroll)
+            concat_lines.append(f"file '{preroll.resolve()}'")
+            cursor += first_preroll
 
         for idx, seg in enumerate(segments):
             gap = 0.0 if idx == 0 else inter_segment_gap
@@ -492,7 +498,11 @@ class ScreenRecordingProcessor:
             remapped_segments.append(SubtitleSegment(segment_start, segment_end, seg.text))
 
             range_duration = gap + voice_duration
-            desired_source_start = max(0.0, seg.start - (gap if idx > 0 else lead_padding))
+            if idx == 0:
+                range_duration += first_preroll
+                desired_source_start = 0.0
+            else:
+                desired_source_start = max(0.0, seg.start - gap)
             source_start = min(desired_source_start, max(0.0, source_duration - range_duration))
             source_end = min(source_duration, source_start + range_duration)
             if source_end - source_start > 0.05:
@@ -852,11 +862,11 @@ class ScreenRecordingProcessor:
     @staticmethod
     def _write_srt(segments: list[SubtitleSegment], output: Path) -> None:
         lines = []
-        for idx, seg in enumerate(segments, start=1):
+        for idx, seg in enumerate(ScreenRecordingProcessor._caption_events(segments), start=1):
             lines.extend([
                 str(idx),
                 f"{ScreenRecordingProcessor._timestamp_srt(seg.start)} --> {ScreenRecordingProcessor._timestamp_srt(seg.end)}",
-                seg.text,
+                ScreenRecordingProcessor._wrap_caption_text(seg.text, max_chars=22, line_break="\n"),
                 "",
             ])
         output.write_text("\n".join(lines), encoding="utf-8")
@@ -867,24 +877,79 @@ class ScreenRecordingProcessor:
 ScriptType: v4.00+
 PlayResX: 1920
 PlayResY: 1080
-WrapStyle: 2
+WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,48,&H00FFFFFF,&H00000000,&H00000000,&H70000000,0,0,0,0,100,100,0,0,1,3,1,2,80,80,70,1
+Style: Default,Arial,42,&H00FFFFFF,&H00000000,&H00000000,&H70000000,0,0,0,0,100,100,0,0,1,3,1,2,120,120,76,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
         lines = [header]
-        for seg in segments:
-            text = seg.text.replace("\n", " ").replace(",", "，")
+        for seg in ScreenRecordingProcessor._caption_events(segments):
+            text = ScreenRecordingProcessor._wrap_caption_text(
+                seg.text.replace("\n", " ").replace(",", "，"),
+                max_chars=22,
+                line_break=r"\N",
+            )
             lines.append(
                 f"Dialogue: 0,{ScreenRecordingProcessor._timestamp_ass(seg.start)},"
                 f"{ScreenRecordingProcessor._timestamp_ass(seg.end)},Default,,0,0,0,,{text}\n"
             )
         output.write_text("".join(lines), encoding="utf-8")
+
+    @staticmethod
+    def _caption_events(segments: list[SubtitleSegment], max_chars: int = 44) -> list[SubtitleSegment]:
+        events: list[SubtitleSegment] = []
+        for seg in segments:
+            chunks = ScreenRecordingProcessor._split_caption_text(seg.text, max_chars=max_chars)
+            if not chunks:
+                continue
+            total_chars = sum(max(1, len(chunk)) for chunk in chunks)
+            duration = max(0.1, seg.end - seg.start)
+            cursor = seg.start
+            for idx, chunk in enumerate(chunks):
+                if idx == len(chunks) - 1:
+                    end = seg.end
+                else:
+                    ratio = max(1, len(chunk)) / total_chars
+                    end = min(seg.end, cursor + duration * ratio)
+                if end - cursor > 0.05:
+                    events.append(SubtitleSegment(cursor, end, chunk))
+                cursor = end
+        return events
+
+    @staticmethod
+    def _split_caption_text(text: str, max_chars: int) -> list[str]:
+        text = re.sub(r"\s+", " ", text.strip())
+        if not text:
+            return []
+
+        parts = [part for part in re.split(r"(?<=[。！？!?；;，,、])", text) if part]
+        chunks: list[str] = []
+        current = ""
+        for part in parts:
+            if len(part) > max_chars:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.extend(part[i:i + max_chars] for i in range(0, len(part), max_chars))
+            elif current and len(current) + len(part) > max_chars:
+                chunks.append(current)
+                current = part
+            else:
+                current += part
+        if current:
+            chunks.append(current)
+        return chunks
+
+    @staticmethod
+    def _wrap_caption_text(text: str, max_chars: int, line_break: str) -> str:
+        text = re.sub(r"\s+", " ", text.strip())
+        chunks = [text[i:i + max_chars] for i in range(0, len(text), max_chars)]
+        return line_break.join(chunks) if chunks else text
 
     @staticmethod
     def _timestamp_srt(seconds: float) -> str:
