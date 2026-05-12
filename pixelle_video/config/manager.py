@@ -142,6 +142,23 @@ class ConfigManager:
             },
             "tts": {
                 "default_workflow": self.config.comfyui.tts.default_workflow,
+                "inference_mode": self.config.comfyui.tts.inference_mode,
+                "local": {
+                    "voice": self.config.comfyui.tts.local.voice,
+                    "speed": self.config.comfyui.tts.local.speed,
+                },
+                "comfyui": {
+                    "default_workflow": self.config.comfyui.tts.comfyui.default_workflow,
+                },
+                "cosyvoice": {
+                    "enabled": self.config.comfyui.tts.cosyvoice.enabled,
+                    "mode": self.config.comfyui.tts.cosyvoice.mode,
+                    "model": self.config.comfyui.tts.cosyvoice.model,
+                    "speaker": self.config.comfyui.tts.cosyvoice.speaker,
+                    "instruct": self.config.comfyui.tts.cosyvoice.instruct,
+                    "prompt_text": self.config.comfyui.tts.cosyvoice.prompt_text,
+                    "prompt_audio": self.config.comfyui.tts.cosyvoice.prompt_audio,
+                },
             },
             "image": {
                 "default_workflow": self.config.comfyui.image.default_workflow,
@@ -164,6 +181,13 @@ class ConfigManager:
         dashscope_region: Optional[str] = None,
         dashscope_base_url: Optional[str] = None,
         dashscope_workspace: Optional[str] = None,
+        tts_cosyvoice_enabled: Optional[bool] = None,
+        tts_cosyvoice_mode: Optional[str] = None,
+        tts_cosyvoice_model: Optional[str] = None,
+        tts_cosyvoice_speaker: Optional[str] = None,
+        tts_cosyvoice_instruct: Optional[str] = None,
+        tts_cosyvoice_prompt_text: Optional[str] = None,
+        tts_cosyvoice_prompt_audio: Optional[str] = None,
     ):
         """Set ComfyUI global configuration"""
         updates = {}
@@ -189,6 +213,26 @@ class ConfigManager:
             dashscope_updates["workspace"] = dashscope_workspace if dashscope_workspace else None
         if dashscope_updates:
             updates["dashscope"] = dashscope_updates
+        tts_updates = {}
+        cosyvoice_updates = {}
+        if tts_cosyvoice_enabled is not None:
+            cosyvoice_updates["enabled"] = tts_cosyvoice_enabled
+        if tts_cosyvoice_mode is not None:
+            cosyvoice_updates["mode"] = tts_cosyvoice_mode
+        if tts_cosyvoice_model is not None:
+            cosyvoice_updates["model"] = tts_cosyvoice_model
+        if tts_cosyvoice_speaker is not None:
+            cosyvoice_updates["speaker"] = tts_cosyvoice_speaker
+        if tts_cosyvoice_instruct is not None:
+            cosyvoice_updates["instruct"] = tts_cosyvoice_instruct
+        if tts_cosyvoice_prompt_text is not None:
+            cosyvoice_updates["prompt_text"] = tts_cosyvoice_prompt_text
+        if tts_cosyvoice_prompt_audio is not None:
+            cosyvoice_updates["prompt_audio"] = tts_cosyvoice_prompt_audio
+        if cosyvoice_updates:
+            tts_updates["cosyvoice"] = cosyvoice_updates
+        if tts_updates:
+            updates["tts"] = tts_updates
 
         if updates:
             self.update({"comfyui": updates})

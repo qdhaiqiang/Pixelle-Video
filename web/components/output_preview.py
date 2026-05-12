@@ -146,6 +146,9 @@ def render_single_output(pixelle_video, video_params):
                 if tts_mode == "local":
                     video_params["tts_voice"] = selected_voice
                     video_params["tts_speed"] = tts_speed
+                elif tts_mode == "cosyvoice":
+                    video_params["tts_voice"] = selected_voice
+                    video_params["tts_speed"] = tts_speed
                 else:  # comfyui
                     video_params["tts_workflow"] = tts_workflow_key
                     if ref_audio_path:
@@ -260,7 +263,7 @@ def render_batch_output(pixelle_video, video_params):
             }
             
             # Add TTS parameters based on mode (only add non-None values)
-            if shared_config["tts_inference_mode"] == "local":
+            if shared_config["tts_inference_mode"] in {"local", "cosyvoice"}:
                 tts_voice = video_params.get("tts_voice")
                 tts_speed = video_params.get("tts_speed")
                 if tts_voice:

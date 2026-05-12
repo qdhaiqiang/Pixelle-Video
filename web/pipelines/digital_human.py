@@ -397,6 +397,10 @@ class DigitalHumanPipelineUI(PipelineUI):
                             if tts_inference_mode == "local":
                                 tts_kwargs["voice"] = tts_voice
                                 tts_kwargs["speed"] = tts_speed
+                            elif tts_inference_mode == "cosyvoice":
+                                tts_kwargs["voice"] = tts_voice
+                                tts_kwargs["speed"] = tts_speed
+                                tts_kwargs["allow_instruct"] = False
                             elif tts_inference_mode == "comfyui":
                                 if tts_workflow:
                                     tts_kwargs["workflow"] = tts_workflow
@@ -491,6 +495,10 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 if tts_inference_mode == "local":
                                     tts_kwargs["voice"] = tts_voice
                                     tts_kwargs["speed"] = tts_speed
+                                elif tts_inference_mode == "cosyvoice":
+                                    tts_kwargs["voice"] = tts_voice
+                                    tts_kwargs["speed"] = tts_speed
+                                    tts_kwargs["allow_instruct"] = False
                                 elif tts_inference_mode == "comfyui":
                                     if tts_workflow:
                                         tts_kwargs["workflow"] = tts_workflow
@@ -572,6 +580,10 @@ class DigitalHumanPipelineUI(PipelineUI):
                                 if tts_inference_mode == "local":
                                     tts_kwargs["voice"] = tts_voice
                                     tts_kwargs["speed"] = tts_speed
+                                elif tts_inference_mode == "cosyvoice":
+                                    tts_kwargs["voice"] = tts_voice
+                                    tts_kwargs["speed"] = tts_speed
+                                    tts_kwargs["allow_instruct"] = False
                                 elif tts_inference_mode == "comfyui":
                                     if tts_workflow:
                                         tts_kwargs["workflow"] = tts_workflow

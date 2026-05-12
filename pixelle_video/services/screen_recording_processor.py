@@ -29,6 +29,26 @@ class SubtitleSegment:
 
 
 @dataclass
+class SpeechGroup:
+    segments: list[SubtitleSegment]
+
+    @property
+    def start(self) -> float:
+        return self.segments[0].start
+
+    @property
+    def end(self) -> float:
+        return self.segments[-1].end
+
+    @property
+    def text(self) -> str:
+        text = ""
+        for segment in self.segments:
+            text = ScreenRecordingProcessor._join_narration_text(text, segment.text)
+        return text
+
+
+@dataclass
 class ScreenRecordingResult:
     task_id: str
     video_path: str
@@ -59,6 +79,11 @@ class ScreenRecordingProcessor:
         r"[，,、\s]*(嗯|呃|啊|额)[，,、\s]*",
         r"(然后){2,}",
         r"(就是){2,}",
+    ]
+    REPEATED_PHRASE_PATTERNS = [
+        # Common spoken stutters: 常见的常见的说法 -> 常见的说法, 重启重启后 -> 重启后
+        r"([\u4e00-\u9fffA-Za-z0-9]{2,8})(的)\1\2",
+        r"([\u4e00-\u9fffA-Za-z0-9]{2,8})\1",
     ]
 
     def __init__(self, core):
@@ -399,10 +424,11 @@ class ScreenRecordingProcessor:
             "你是录屏教程字幕编辑。请修正以下 ASR 字幕，使其适合视频所在行业。\n"
             "要求：\n"
             "1. 去掉口语填充词，例如 嗯、呃、啊、然后然后、这个那个 等。\n"
-            "2. 保留原意和时间顺序，不要扩写，不要增加原文没有的信息。\n"
-            "3. 保留专业术语、产品名、英文缩写、菜单名。\n"
-            "4. 每条字幕尽量短，适合直接显示在视频底部。\n"
-            "5. 只输出 JSON：{\"segments\":[{\"index\":1,\"text\":\"...\"}]}。\n\n"
+            "2. 修正明显口误、重复修饰和病句，例如「常见的常见的说法」改为「常见的说法」，「重启重启后会看到效果」改为「重启后会看到效果」。\n"
+            "3. 保留原意和时间顺序，不要扩写，不要增加原文没有的信息。\n"
+            "4. 保留专业术语、产品名、英文缩写、菜单名。\n"
+            "5. 每条字幕尽量短，适合直接显示在视频底部。\n"
+            "6. 只输出 JSON：{\"segments\":[{\"index\":1,\"text\":\"...\"}]}。\n\n"
             f"行业/业务背景：{industry_context or '未提供'}\n\n"
             f"字幕：{json.dumps(prompt_segments, ensure_ascii=False)}"
         )
@@ -419,7 +445,11 @@ class ScreenRecordingProcessor:
             }
             polished = []
             for i, seg in enumerate(segments, start=1):
-                polished.append(SubtitleSegment(seg.start, seg.end, corrected.get(i, seg.text)))
+                text = corrected.get(i, seg.text)
+                text = self._clean_disfluencies(text)
+                if text and text[-1] not in "。！？.!?":
+                    text += "。"
+                polished.append(SubtitleSegment(seg.start, seg.end, text))
             return polished
         except Exception as e:
             logger.warning(f"AI subtitle polish failed, using rule-cleaned subtitles: {e}")
@@ -441,36 +471,33 @@ class ScreenRecordingProcessor:
 
         concat_lines: list[str] = []
         cursor = 0.0
-        for idx, seg in enumerate(segments):
-            gap = max(0.0, seg.start - cursor)
+        groups = self._build_speech_groups(segments)
+        for idx, group in enumerate(groups):
+            gap = max(0.0, group.start - cursor)
             if gap > 0.03:
                 silence = tts_dir / f"silence_{idx:03d}.mp3"
                 self._make_silence(silence, gap)
                 concat_lines.append(f"file '{silence.resolve()}'")
 
             seg_audio = tts_dir / f"tts_{idx:03d}.mp3"
-            tts_params = {
-                "text": seg.text,
-                "inference_mode": tts_inference_mode,
-                "output_path": str(seg_audio),
-            }
-            if tts_inference_mode == "local":
-                tts_params["voice"] = tts_voice
-                tts_params["speed"] = tts_speed
-            else:
-                if tts_workflow:
-                    tts_params["workflow"] = tts_workflow
-                if ref_audio:
-                    tts_params["ref_audio"] = ref_audio
+            tts_params = self._build_tts_params(
+                text=group.text,
+                output_audio=seg_audio,
+                tts_inference_mode=tts_inference_mode,
+                tts_voice=tts_voice,
+                tts_speed=tts_speed,
+                tts_workflow=tts_workflow,
+                ref_audio=ref_audio,
+            )
             await self.core.tts(**tts_params)
             aligned_audio = tts_dir / f"aligned_{idx:03d}.mp3"
             self._fit_audio_to_duration(
                 input_audio=seg_audio,
                 output_audio=aligned_audio,
-                target_duration=max(0.1, seg.end - seg.start),
+                target_duration=max(0.1, group.end - group.start),
             )
             concat_lines.append(f"file '{aligned_audio.resolve()}'")
-            cursor = max(cursor, seg.end)
+            cursor = max(cursor, group.end)
 
         tail_gap = max(0.0, target_duration - cursor)
         if tail_gap > 0.03:
@@ -507,8 +534,9 @@ class ScreenRecordingProcessor:
         compact_ranges: list[tuple[float, float]] = []
         remapped_segments: list[SubtitleSegment] = []
         cursor = 0.0
-        inter_segment_gap = 0.22
+        inter_group_gap = 0.22
         first_preroll = 1.0
+        groups = self._build_speech_groups(segments)
 
         if first_preroll > 0.03:
             preroll = tts_dir / "gap_preroll.mp3"
@@ -516,8 +544,8 @@ class ScreenRecordingProcessor:
             concat_lines.append(f"file '{preroll.resolve()}'")
             cursor += first_preroll
 
-        for idx, seg in enumerate(segments):
-            gap = 0.0 if idx == 0 else inter_segment_gap
+        for idx, group in enumerate(groups):
+            gap = 0.0 if idx == 0 else inter_group_gap
             if gap > 0.03:
                 silence = tts_dir / f"gap_{idx:03d}.mp3"
                 self._make_silence(silence, gap)
@@ -525,44 +553,40 @@ class ScreenRecordingProcessor:
                 cursor += gap
 
             raw_audio = tts_dir / f"tts_{idx:03d}.mp3"
-            tts_params = {
-                "text": seg.text,
-                "inference_mode": tts_inference_mode,
-                "output_path": str(raw_audio),
-            }
-            if tts_inference_mode == "local":
-                tts_params["voice"] = tts_voice
-                tts_params["speed"] = tts_speed
-            else:
-                if tts_workflow:
-                    tts_params["workflow"] = tts_workflow
-                if ref_audio:
-                    tts_params["ref_audio"] = ref_audio
+            tts_params = self._build_tts_params(
+                text=group.text,
+                output_audio=raw_audio,
+                tts_inference_mode=tts_inference_mode,
+                tts_voice=tts_voice,
+                tts_speed=tts_speed,
+                tts_workflow=tts_workflow,
+                ref_audio=ref_audio,
+            )
             await self.core.tts(**tts_params)
 
             raw_duration = max(0.1, self._probe_duration(raw_audio))
-            original_duration = max(0.1, seg.end - seg.start)
+            original_duration = max(0.1, group.end - group.start)
             voice_duration = min(raw_duration, original_duration)
             aligned_audio = tts_dir / f"aligned_{idx:03d}.mp3"
             self._fit_audio_to_duration(raw_audio, aligned_audio, voice_duration)
             concat_lines.append(f"file '{aligned_audio.resolve()}'")
 
-            segment_start = cursor
-            segment_end = cursor + voice_duration
-            remapped_segments.append(SubtitleSegment(segment_start, segment_end, seg.text))
+            remapped_segments.extend(
+                self._allocate_group_subtitles(group.segments, cursor, voice_duration)
+            )
 
             range_duration = gap + voice_duration
             if idx == 0:
                 range_duration += first_preroll
                 desired_source_start = 0.0
             else:
-                desired_source_start = max(0.0, seg.start - gap)
+                desired_source_start = max(0.0, group.start - gap)
             source_start = min(desired_source_start, max(0.0, source_duration - range_duration))
             source_end = min(source_duration, source_start + range_duration)
             if source_end - source_start > 0.05:
                 compact_ranges.append((source_start, source_end))
 
-            cursor = segment_end
+            cursor += voice_duration
 
         tail_gap = 0.15
         if tail_gap > 0.03:
@@ -582,6 +606,98 @@ class ScreenRecordingProcessor:
             check=True,
         )
         return remapped_segments, compact_ranges, cursor
+
+    @staticmethod
+    def _build_speech_groups(
+        segments: list[SubtitleSegment],
+        max_gap: float = 0.9,
+        max_chars: int = 150,
+        max_duration: float = 14.0,
+    ) -> list[SpeechGroup]:
+        if not segments:
+            return []
+
+        groups: list[SpeechGroup] = []
+        current: list[SubtitleSegment] = [segments[0]]
+
+        for segment in segments[1:]:
+            previous = current[-1]
+            gap = max(0.0, segment.start - previous.end)
+            combined_text = ""
+            for item in [*current, segment]:
+                combined_text = ScreenRecordingProcessor._join_narration_text(combined_text, item.text)
+            combined_duration = segment.end - current[0].start
+            previous_text = previous.text.strip()
+            should_break = (
+                gap > max_gap
+                or len(combined_text) > max_chars
+                or combined_duration > max_duration
+                or previous_text.endswith(("。", "！", "？", ".", "!", "?"))
+                and len(combined_text) >= 44
+            )
+            if should_break:
+                groups.append(SpeechGroup(current))
+                current = [segment]
+            else:
+                current.append(segment)
+
+        groups.append(SpeechGroup(current))
+        return groups
+
+    @staticmethod
+    def _allocate_group_subtitles(
+        segments: list[SubtitleSegment],
+        group_start: float,
+        voice_duration: float,
+    ) -> list[SubtitleSegment]:
+        if not segments:
+            return []
+        source_duration = max(0.1, segments[-1].end - segments[0].start)
+        remapped: list[SubtitleSegment] = []
+        cursor = group_start
+
+        for idx, segment in enumerate(segments):
+            if idx == len(segments) - 1:
+                end = group_start + voice_duration
+            else:
+                relative_end = (segment.end - segments[0].start) / source_duration
+                end = group_start + voice_duration * max(0.0, min(1.0, relative_end))
+            if end - cursor < 0.18:
+                end = min(group_start + voice_duration, cursor + 0.18)
+            if end > cursor:
+                remapped.append(SubtitleSegment(cursor, end, segment.text))
+            cursor = end
+
+        return remapped
+
+    @staticmethod
+    def _build_tts_params(
+        text: str,
+        output_audio: Path,
+        tts_inference_mode: str,
+        tts_voice: str,
+        tts_speed: float,
+        tts_workflow: Optional[str],
+        ref_audio: Optional[str],
+    ) -> dict:
+        params = {
+            "text": text,
+            "inference_mode": tts_inference_mode,
+            "output_path": str(output_audio),
+        }
+        if tts_inference_mode == "local":
+            params["voice"] = tts_voice
+            params["speed"] = tts_speed
+        elif tts_inference_mode == "cosyvoice":
+            params["voice"] = tts_voice
+            params["speed"] = tts_speed
+            params["allow_instruct"] = False
+        else:
+            if tts_workflow:
+                params["workflow"] = tts_workflow
+            if ref_audio:
+                params["ref_audio"] = ref_audio
+        return params
 
     def _render_video(
         self,
@@ -907,11 +1023,25 @@ class ScreenRecordingProcessor:
             text = text.replace(src, dst)
         for pattern in cls.FILLER_PATTERNS:
             text = re.sub(pattern, "", text)
+        text = cls._clean_disfluencies(text)
         text = re.sub(r"\s+", " ", text).strip()
         text = text.strip("，,、 ")
         if text and text[-1] not in "。！？.!?":
             text += "。"
         return text
+
+    @classmethod
+    def _clean_disfluencies(cls, text: str) -> str:
+        text = text.strip()
+        for _ in range(3):
+            previous = text
+            for pattern in cls.REPEATED_PHRASE_PATTERNS:
+                text = re.sub(pattern, r"\1\2" if "(的)" in pattern else r"\1", text)
+            text = re.sub(r"(，\s*){2,}", "，", text)
+            text = re.sub(r"(。\s*){2,}", "。", text)
+            if text == previous:
+                break
+        return text.strip("，,、 ")
 
     @staticmethod
     def _write_srt(segments: list[SubtitleSegment], output: Path) -> None:

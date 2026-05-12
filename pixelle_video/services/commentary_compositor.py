@@ -315,8 +315,24 @@ class CommentaryCompositor:
 
         concat_file = work_dir / "voice_concat.txt"
         entries: List[str] = []
+        cosy_tts = None
+        if cfg.tts_inference_mode == "cosyvoice":
+            from pixelle_video.config import config_manager
+            from pixelle_video.services.tts_service import TTSService
+            cosy_tts = TTSService(config_manager.config.to_dict())
 
         async def synthesize_with_retry(text: str, out_path: Path) -> None:
+            if cosy_tts is not None:
+                await cosy_tts(
+                    text=text,
+                    inference_mode="cosyvoice",
+                    voice=cfg.tts_voice,
+                    speed=cfg.tts_speed,
+                    output_path=str(out_path),
+                    allow_instruct=False,
+                )
+                return
+
             max_attempts = 6
             base_delay = 1.0
             for attempt in range(1, max_attempts + 1):
@@ -397,9 +413,25 @@ class CommentaryCompositor:
 
         wav_paths: List[Path] = []
         actual_durations: List[float] = []
+        cosy_tts = None
+        if cfg.tts_inference_mode == "cosyvoice":
+            from pixelle_video.config import config_manager
+            from pixelle_video.services.tts_service import TTSService
+            cosy_tts = TTSService(config_manager.config.to_dict())
 
         async def synthesize_with_retry(text: str, out_path: Path) -> None:
             """Call edge-tts with robust retry/backoff and longer timeout."""
+            if cosy_tts is not None:
+                await cosy_tts(
+                    text=text,
+                    inference_mode="cosyvoice",
+                    voice=cfg.tts_voice,
+                    speed=cfg.tts_speed,
+                    output_path=str(out_path),
+                    allow_instruct=False,
+                )
+                return
+
             max_attempts = 6
             base_delay = 1.0
             for attempt in range(1, max_attempts + 1):

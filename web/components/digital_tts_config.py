@@ -24,6 +24,7 @@ from web.i18n import tr, get_language
 from web.utils.async_helpers import run_async
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
+from pixelle_video.services.cosyvoice_installer import get_cosyvoice_status
 
 
 def render_style_config(pixelle_video):
@@ -44,20 +45,19 @@ def render_style_config(pixelle_video):
         tts_config = comfyui_config["tts"]
         
         # Inference mode selection
+        tts_modes = ["local", "cosyvoice", "comfyui"]
+        saved_mode = tts_config.get("inference_mode", "local")
         tts_mode = st.radio(
             tr("tts.inference_mode"),
-            ["local", "comfyui"],
+            tts_modes,
             horizontal=True,
             format_func=lambda x: tr(f"tts.mode.{x}"),
-            index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
+            index=tts_modes.index(saved_mode) if saved_mode in tts_modes else 0,
             key="digital_tts_inference_mode"
         )
         
         # Show hint based on mode
-        if tts_mode == "local":
-            st.caption(tr("tts.mode.local_hint"))
-        else:
-            st.caption(tr("tts.mode.comfyui_hint"))
+        st.caption(tr(f"tts.mode.{tts_mode}_hint"))
         
         # ================================================================
         # Local Mode UI
@@ -116,6 +116,41 @@ def render_style_config(pixelle_video):
                 st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
             
             # Variables for video generation
+            tts_workflow_key = None
+            ref_audio_path = None
+        elif tts_mode == "cosyvoice":
+            cosyvoice_config = tts_config.get("cosyvoice", {})
+            status = get_cosyvoice_status()
+            if not cosyvoice_config.get("enabled", False):
+                st.warning(tr("tts.cosyvoice.configure_in_settings"))
+            elif status.installed:
+                st.success(tr("tts.cosyvoice.installed", path=status.repo_dir))
+            else:
+                st.warning(tr("tts.cosyvoice.not_installed_settings", message=status.message))
+
+            voice_col, speed_col = st.columns([1, 1])
+            with voice_col:
+                cosyvoice_speakers = ["中文女", "中文男", "英文女", "英文男", "日语男", "粤语女", "韩语女"]
+                saved_speaker = cosyvoice_config.get("speaker", "中文女")
+                selected_voice = st.selectbox(
+                    tr("tts.voice_selector"),
+                    cosyvoice_speakers,
+                    index=cosyvoice_speakers.index(saved_speaker) if saved_speaker in cosyvoice_speakers else 0,
+                    key="digital_tts_cosyvoice_voice",
+                )
+            with speed_col:
+                saved_speed = tts_config.get("local", {}).get("speed", 1.2)
+                tts_speed = st.slider(
+                    tr("tts.speed"),
+                    min_value=0.5,
+                    max_value=2.0,
+                    value=saved_speed,
+                    step=0.1,
+                    format="%.1fx",
+                    key="digital_tts_cosyvoice_speed",
+                )
+                st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
+
             tts_workflow_key = None
             ref_audio_path = None
         
@@ -199,6 +234,10 @@ def render_style_config(pixelle_video):
                         if tts_mode == "local":
                             tts_params["voice"] = selected_voice
                             tts_params["speed"] = tts_speed
+                        elif tts_mode == "cosyvoice":
+                            tts_params["voice"] = selected_voice
+                            tts_params["speed"] = tts_speed
+                            tts_params["allow_instruct"] = False
                         else:  # comfyui
                             tts_params["workflow"] = tts_workflow_key
                             if ref_audio_path:
@@ -227,8 +266,8 @@ def render_style_config(pixelle_video):
     # Return all style configuration parameters (Simplified version only local TTS)
     return {
         "tts_inference_mode": tts_mode,
-        "tts_voice": selected_voice if tts_mode == "local" else None,
-        "tts_speed": tts_speed if tts_mode == "local" else None,
+        "tts_voice": selected_voice if tts_mode in {"local", "cosyvoice"} else None,
+        "tts_speed": tts_speed if tts_mode in {"local", "cosyvoice"} else None,
         "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
         "ref_audio": str(ref_audio_path) if ref_audio_path else None,
     }

@@ -140,6 +140,10 @@ class CustomPipeline(BasePipeline):
                 final_voice_id = tts_voice or "zh-CN-YunjianNeural"
                 final_tts_workflow = None  # Don't use workflow in local mode
                 logger.debug(f"TTS Mode: local (voice={final_voice_id})")
+            elif tts_inference_mode == "cosyvoice":
+                final_voice_id = tts_voice or "中文女"
+                final_tts_workflow = None
+                logger.debug(f"TTS Mode: cosyvoice (speaker={final_voice_id})")
             elif tts_inference_mode == "comfyui":
                 # ComfyUI workflow mode
                 final_voice_id = None  # Don't use voice_id in ComfyUI mode
@@ -560,4 +564,3 @@ class QuickPipeline(BasePipeline):
 pixelle_video.pipelines["quick"] = QuickPipeline(pixelle_video)
 result = await pixelle_video.generate_video(text=content, pipeline="quick")
 """
-

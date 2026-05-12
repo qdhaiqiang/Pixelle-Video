@@ -30,6 +30,7 @@ from web.components.content_input import render_bgm_section
 from web.utils.async_helpers import run_async
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
+from pixelle_video.services.cosyvoice_installer import get_cosyvoice_status
 from pixelle_video.models.progress import ProgressEvent
 
 
@@ -234,43 +235,69 @@ class AssetBasedPipelineUI(PipelineUI):
         with st.container(border=True):
             st.markdown(f"**{tr('section.tts')}**")
             
-            # Import voice configuration
-            from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
-            
-            # Get saved voice from config
             comfyui_config = config_manager.get_comfyui_config()
             tts_config = comfyui_config.get("tts", {})
-            local_config = tts_config.get("local", {})
-            saved_voice = local_config.get("voice", "zh-CN-YunjianNeural")
-            saved_speed = local_config.get("speed", 1.2)
-            
-            # Build voice options with i18n
-            voice_options = []
-            voice_ids = []
-            default_voice_index = 0
-            
-            for idx, voice_config in enumerate(EDGE_TTS_VOICES):
-                voice_id = voice_config["id"]
-                display_name = get_voice_display_name(voice_id, tr, get_language())
-                voice_options.append(display_name)
-                voice_ids.append(voice_id)
-                
-                if voice_id == saved_voice:
-                    default_voice_index = idx
-            
-            # Two-column layout
-            voice_col, speed_col = st.columns([1, 1])
-            
-            with voice_col:
-                selected_voice_display = st.selectbox(
-                    tr("tts.voice_selector"),
-                    voice_options,
-                    index=default_voice_index,
-                    key="asset_tts_voice"
-                )
-                selected_voice_index = voice_options.index(selected_voice_display)
-                voice_id = voice_ids[selected_voice_index]
-            
+            tts_modes = ["local", "cosyvoice"]
+            saved_mode = tts_config.get("inference_mode", "local")
+            tts_inference_mode = st.radio(
+                tr("tts.inference_mode"),
+                tts_modes,
+                horizontal=True,
+                format_func=lambda x: tr(f"tts.mode.{x}"),
+                index=tts_modes.index(saved_mode) if saved_mode in tts_modes else 0,
+                key="asset_tts_mode",
+            )
+            st.caption(tr(f"tts.mode.{tts_inference_mode}_hint"))
+
+            if tts_inference_mode == "local":
+                from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
+
+                local_config = tts_config.get("local", {})
+                saved_voice = local_config.get("voice", "zh-CN-YunjianNeural")
+                saved_speed = local_config.get("speed", 1.2)
+                voice_options = []
+                voice_ids = []
+                default_voice_index = 0
+
+                for idx, voice_config in enumerate(EDGE_TTS_VOICES):
+                    voice_id = voice_config["id"]
+                    display_name = get_voice_display_name(voice_id, tr, get_language())
+                    voice_options.append(display_name)
+                    voice_ids.append(voice_id)
+                    if voice_id == saved_voice:
+                        default_voice_index = idx
+
+                voice_col, speed_col = st.columns([1, 1])
+                with voice_col:
+                    selected_voice_display = st.selectbox(
+                        tr("tts.voice_selector"),
+                        voice_options,
+                        index=default_voice_index,
+                        key="asset_tts_voice"
+                    )
+                    selected_voice_index = voice_options.index(selected_voice_display)
+                    voice_id = voice_ids[selected_voice_index]
+            else:
+                cosyvoice_config = tts_config.get("cosyvoice", {})
+                status = get_cosyvoice_status()
+                if not cosyvoice_config.get("enabled", False):
+                    st.warning(tr("tts.cosyvoice.configure_in_settings"))
+                elif status.installed:
+                    st.success(tr("tts.cosyvoice.installed", path=status.repo_dir))
+                else:
+                    st.warning(tr("tts.cosyvoice.not_installed_settings", message=status.message))
+                saved_speed = tts_config.get("local", {}).get("speed", 1.2)
+                voice_col, speed_col = st.columns([1, 1])
+                with voice_col:
+                    cosyvoice_speakers = ["中文女", "中文男", "英文女", "英文男", "日语男", "粤语女", "韩语女"]
+                    saved_speaker = cosyvoice_config.get("speaker", "中文女")
+                    voice_id = st.selectbox(
+                        tr("tts.voice_selector"),
+                        cosyvoice_speakers,
+                        index=cosyvoice_speakers.index(saved_speaker) if saved_speaker in cosyvoice_speakers else 0,
+                        key="asset_tts_cosyvoice_voice",
+                    )
+
             with speed_col:
                 tts_speed = st.slider(
                     tr("tts.speed"),
@@ -279,13 +306,14 @@ class AssetBasedPipelineUI(PipelineUI):
                     value=saved_speed,
                     step=0.1,
                     format="%.1fx",
-                    key="asset_tts_speed"
+                    key=f"asset_tts_speed_{tts_inference_mode}"
                 )
                 st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
         
         return {
             "duration": duration,
             "source": source,
+            "tts_inference_mode": tts_inference_mode,
             "voice_id": voice_id,
             "tts_speed": tts_speed
         }
@@ -393,6 +421,7 @@ class AssetBasedPipelineUI(PipelineUI):
                         bgm_path=video_params.get("bgm_path"),
                         bgm_volume=video_params.get("bgm_volume", 0.2),
                         bgm_mode=video_params.get("bgm_mode", "loop"),
+                        tts_inference_mode=video_params.get("tts_inference_mode", "local"),
                         voice_id=video_params.get("voice_id", "zh-CN-YunjianNeural"),
                         tts_speed=video_params.get("tts_speed", 1.2),
                         progress_callback=update_progress

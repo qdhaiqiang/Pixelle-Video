@@ -13,6 +13,7 @@ import streamlit as st
 from loguru import logger
 
 from pixelle_video.config import config_manager
+from pixelle_video.services.cosyvoice_installer import get_cosyvoice_status
 from pixelle_video.services.screen_recording_processor import ScreenRecordingProcessor
 from pixelle_video.services.video import VideoService
 from web.i18n import get_language, tr
@@ -207,17 +208,14 @@ class ScreenRecordingPipelineUI(PipelineUI):
 
                 tts_inference_mode = st.radio(
                     tr("tts.inference_mode"),
-                    ["local", "comfyui"],
+                    ["local", "cosyvoice", "comfyui"],
                     horizontal=True,
                     format_func=lambda x: tr(f"tts.mode.{x}"),
-                    index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
+                    index=self._tts_mode_index(tts_config.get("inference_mode", "local")),
                     key="screen_recording_tts_mode",
                 )
 
-                if tts_inference_mode == "local":
-                    st.caption(tr("tts.mode.local_hint"))
-                else:
-                    st.caption(tr("tts.mode.comfyui_hint"))
+                st.caption(tr(f"tts.mode.{tts_inference_mode}_hint"))
 
                 if tts_inference_mode == "local":
                     from pixelle_video.tts_voices import EDGE_TTS_VOICES, get_voice_display_name
@@ -259,6 +257,37 @@ class ScreenRecordingPipelineUI(PipelineUI):
                             step=0.1,
                             format="%.1fx",
                             key="screen_recording_tts_speed",
+                        )
+                        st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
+                elif tts_inference_mode == "cosyvoice":
+                    cosyvoice_config = tts_config.get("cosyvoice", {})
+                    status = get_cosyvoice_status()
+                    if not cosyvoice_config.get("enabled", False):
+                        st.warning(tr("tts.cosyvoice.configure_in_settings"))
+                    elif status.installed:
+                        st.success(tr("tts.cosyvoice.installed", path=status.repo_dir))
+                    else:
+                        st.warning(tr("tts.cosyvoice.not_installed_settings", message=status.message))
+
+                    voice_col, speed_col = st.columns([1, 1])
+                    with voice_col:
+                        cosyvoice_speakers = ["中文女", "中文男", "英文女", "英文男", "日语男", "粤语女", "韩语女"]
+                        saved_speaker = cosyvoice_config.get("speaker", "中文女")
+                        tts_voice = st.selectbox(
+                            tr("tts.voice_selector"),
+                            cosyvoice_speakers,
+                            index=cosyvoice_speakers.index(saved_speaker) if saved_speaker in cosyvoice_speakers else 0,
+                            key="screen_recording_tts_cosyvoice_speaker",
+                        )
+                    with speed_col:
+                        tts_speed = st.slider(
+                            tr("tts.speed"),
+                            min_value=0.5,
+                            max_value=2.0,
+                            value=1.0,
+                            step=0.1,
+                            format="%.1fx",
+                            key="screen_recording_tts_cosyvoice_speed",
                         )
                         st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
                 else:
@@ -324,7 +353,12 @@ class ScreenRecordingPipelineUI(PipelineUI):
                                     tts_params["voice"] = tts_voice
                                     tts_params["speed"] = tts_speed
                                 else:
-                                    tts_params["workflow"] = tts_workflow
+                                    if tts_inference_mode == "cosyvoice":
+                                        tts_params["speed"] = tts_speed
+                                        tts_params["voice"] = tts_voice
+                                        tts_params["allow_instruct"] = False
+                                    else:
+                                        tts_params["workflow"] = tts_workflow
                                     if ref_audio_path:
                                         tts_params["ref_audio"] = ref_audio_path
 
@@ -373,6 +407,11 @@ class ScreenRecordingPipelineUI(PipelineUI):
             "bgm_path": bgm_path,
             "bgm_volume": bgm_volume,
         }
+
+    @staticmethod
+    def _tts_mode_index(saved_mode: str) -> int:
+        modes = ["local", "cosyvoice", "comfyui"]
+        return modes.index(saved_mode) if saved_mode in modes else 0
 
     def _render_output(self, pixelle_video: Any, params: dict):
         with st.container(border=True):

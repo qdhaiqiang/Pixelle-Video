@@ -182,6 +182,8 @@ class FrameProcessor:
                 tts_params["voice"] = config.voice_id
             if config.tts_speed is not None:
                 tts_params["speed"] = config.tts_speed
+            if config.tts_inference_mode == "cosyvoice":
+                tts_params["allow_instruct"] = False
             if config.ref_audio:
                 tts_params["ref_audio"] = config.ref_audio
         
@@ -444,4 +446,3 @@ class FrameProcessor:
             logger.warning(f"Failed to get video duration: {e}, using audio duration")
             # Fallback: use audio duration if available
             return 1.0  # Default to 1 second if unable to determine
-

@@ -30,6 +30,7 @@ from web.pipelines.base import PipelineUI, register_pipeline_ui
 from web.utils.async_helpers import run_async
 from web.utils.streamlit_helpers import check_and_warn_selfhost_workflow
 from pixelle_video.config import config_manager
+from pixelle_video.services.cosyvoice_installer import get_cosyvoice_status
 from pixelle_video.services.subtitle_extractor import SubtitleExtractor, SubtitleDetectionResult
 
 
@@ -350,19 +351,18 @@ class CommentaryPipelineUI(PipelineUI):
             tts_config = comfyui_config["tts"]
 
             # Inference mode selection
+            tts_modes = ["local", "cosyvoice", "comfyui"]
+            saved_mode = tts_config.get("inference_mode", "local")
             tts_mode = st.radio(
                 tr("tts.inference_mode"),
-                ["local", "comfyui"],
+                tts_modes,
                 horizontal=True,
                 format_func=lambda x: tr(f"tts.mode.{x}"),
-                index=0 if tts_config.get("inference_mode", "local") == "local" else 1,
+                index=tts_modes.index(saved_mode) if saved_mode in tts_modes else 0,
                 key="commentary_tts_mode"
             )
 
-            if tts_mode == "local":
-                st.caption(tr("tts.mode.local_hint"))
-            else:
-                st.caption(tr("tts.mode.comfyui_hint"))
+            st.caption(tr(f"tts.mode.{tts_mode}_hint"))
 
             # ================================================================
             # Local Mode
@@ -411,6 +411,43 @@ class CommentaryPipelineUI(PipelineUI):
                     st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
 
                 # Convert tts_speed (e.g. 1.2) to edge-tts rate format (e.g. "+20%")
+                speed_pct = int((tts_speed - 1.0) * 100)
+                tts_rate = f"+{speed_pct}%" if speed_pct >= 0 else f"{speed_pct}%"
+                tts_workflow_key = None
+                ref_audio_path = None
+            elif tts_mode == "cosyvoice":
+                cosyvoice_config = tts_config.get("cosyvoice", {})
+                status = get_cosyvoice_status()
+                if not cosyvoice_config.get("enabled", False):
+                    st.warning(tr("tts.cosyvoice.configure_in_settings"))
+                elif status.installed:
+                    st.success(tr("tts.cosyvoice.installed", path=status.repo_dir))
+                else:
+                    st.warning(tr("tts.cosyvoice.not_installed_settings", message=status.message))
+
+                voice_col, speed_col = st.columns([1, 1])
+                with voice_col:
+                    cosyvoice_speakers = ["中文女", "中文男", "英文女", "英文男", "日语男", "粤语女", "韩语女"]
+                    saved_speaker = cosyvoice_config.get("speaker", "中文女")
+                    selected_voice = st.selectbox(
+                        tr("tts.voice_selector"),
+                        cosyvoice_speakers,
+                        index=cosyvoice_speakers.index(saved_speaker) if saved_speaker in cosyvoice_speakers else 0,
+                        key="commentary_tts_cosyvoice_voice",
+                    )
+                with speed_col:
+                    saved_speed = tts_config.get("local", {}).get("speed", 1.2)
+                    tts_speed = st.slider(
+                        tr("tts.speed"),
+                        min_value=0.5,
+                        max_value=2.0,
+                        value=saved_speed,
+                        step=0.1,
+                        format="%.1fx",
+                        key="commentary_tts_cosyvoice_speed"
+                    )
+                    st.caption(tr("tts.speed_label", speed=f"{tts_speed:.1f}"))
+
                 speed_pct = int((tts_speed - 1.0) * 100)
                 tts_rate = f"+{speed_pct}%" if speed_pct >= 0 else f"{speed_pct}%"
                 tts_workflow_key = None
@@ -484,6 +521,10 @@ class CommentaryPipelineUI(PipelineUI):
                             if tts_mode == "local":
                                 tts_params["voice"] = selected_voice
                                 tts_params["speed"] = tts_speed
+                            elif tts_mode == "cosyvoice":
+                                tts_params["voice"] = selected_voice
+                                tts_params["speed"] = tts_speed
+                                tts_params["allow_instruct"] = False
                             else:
                                 tts_params["workflow"] = tts_workflow_key
                                 if ref_audio_path:
@@ -717,9 +758,9 @@ class CommentaryPipelineUI(PipelineUI):
 
         return {
             "tts_inference_mode": tts_mode,
-            "tts_voice": selected_voice if tts_mode == "local" else None,
-            "tts_speed": tts_speed if tts_mode == "local" else None,
-            "tts_rate": tts_rate if tts_mode == "local" else "+0%",
+            "tts_voice": selected_voice if tts_mode in {"local", "cosyvoice"} else None,
+            "tts_speed": tts_speed if tts_mode in {"local", "cosyvoice"} else None,
+            "tts_rate": tts_rate if tts_mode in {"local", "cosyvoice"} else "+0%",
             "tts_workflow": tts_workflow_key if tts_mode == "comfyui" else None,
             "ref_audio": str(ref_audio_path) if ref_audio_path else None,
             "export_jianying_materials": jianying_export,

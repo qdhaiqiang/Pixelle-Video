@@ -38,11 +38,23 @@ class TTSComfyUIConfig(BaseModel):
     default_workflow: Optional[str] = Field(default=None, description="Default TTS workflow (optional)")
 
 
+class TTSCosyVoiceConfig(BaseModel):
+    """Local CosyVoice configuration"""
+    enabled: bool = Field(default=False, description="Enable local CosyVoice model")
+    mode: str = Field(default="sft", description="CosyVoice mode: sft, instruct, or zero_shot")
+    model: str = Field(default="iic/CosyVoice-300M-SFT", description="CosyVoice model name or local path")
+    speaker: str = Field(default="中文女", description="Default CosyVoice speaker")
+    instruct: str = Field(default="", description="CosyVoice instruct prompt")
+    prompt_text: str = Field(default="", description="Prompt text for zero-shot voice cloning")
+    prompt_audio: str = Field(default="", description="Prompt audio path for zero-shot voice cloning")
+
+
 class TTSSubConfig(BaseModel):
     """TTS-specific configuration (under comfyui.tts)"""
-    inference_mode: str = Field(default="local", description="TTS inference mode: 'local' or 'comfyui'")
+    inference_mode: str = Field(default="local", description="TTS inference mode: 'local', 'cosyvoice', or 'comfyui'")
     local: TTSLocalConfig = Field(default_factory=TTSLocalConfig, description="Local TTS (Edge TTS) configuration")
     comfyui: TTSComfyUIConfig = Field(default_factory=TTSComfyUIConfig, description="ComfyUI TTS configuration")
+    cosyvoice: TTSCosyVoiceConfig = Field(default_factory=TTSCosyVoiceConfig, description="Local CosyVoice configuration")
     
     # Backward compatibility: keep default_workflow at top level
     @property

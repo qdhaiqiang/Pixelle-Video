@@ -110,8 +110,10 @@ class CommentaryPipeline(BasePipeline):
         cfg = CommentaryConfig(
             source_video=str(video_path),
             target_duration=target_duration,
+            tts_inference_mode=kwargs.get("tts_inference_mode", "local"),
             tts_voice=kwargs.get("tts_voice", "zh-CN-YunxiNeural"),
             tts_rate=kwargs.get("tts_rate", "+18%"),
+            tts_speed=kwargs.get("tts_speed", 1.2),
             narration_slot_ratio=kwargs.get("narration_slot_ratio", 0.82),
             bgm_path=kwargs.get("bgm_path"),
             content_start=kwargs.get("content_start"),
@@ -259,8 +261,10 @@ class CommentaryPipeline(BasePipeline):
             seg_cfg = CommentaryConfig(
                 source_video=cfg.source_video,
                 target_duration=segment_duration,
+                tts_inference_mode=cfg.tts_inference_mode,
                 tts_voice=cfg.tts_voice,
                 tts_rate=cfg.tts_rate,
+                tts_speed=cfg.tts_speed,
                 narration_slot_ratio=cfg.narration_slot_ratio,
                 bgm_path=cfg.bgm_path,
                 content_start=seg_content_start,

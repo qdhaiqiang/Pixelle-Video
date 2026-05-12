@@ -243,6 +243,10 @@ class StandardPipeline(LinearVideoPipeline):
                 final_voice_id = tts_voice or "zh-CN-YunjianNeural"
                 final_tts_workflow = None
                 logger.debug(f"TTS Mode: local (voice={final_voice_id})")
+            elif tts_inference_mode == "cosyvoice":
+                final_voice_id = tts_voice or "中文女"
+                final_tts_workflow = None
+                logger.debug(f"TTS Mode: cosyvoice (speaker={final_voice_id})")
             elif tts_inference_mode == "comfyui":
                 final_voice_id = None
                 logger.debug(f"TTS Mode: comfyui (workflow={final_tts_workflow})")

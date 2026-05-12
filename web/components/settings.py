@@ -21,6 +21,7 @@ import streamlit as st
 from web.i18n import tr, get_language
 from web.utils.streamlit_helpers import safe_rerun
 from pixelle_video.config import config_manager
+from pixelle_video.services.cosyvoice_installer import get_cosyvoice_status, install_cosyvoice
 
 
 def render_advanced_settings():
@@ -203,6 +204,129 @@ def render_advanced_settings():
                     )
                 else:
                     llm_model = selected_model_option
+
+            with st.container(border=True):
+                st.markdown(f"**{tr('settings.tts.title')}**")
+                st.caption(tr("settings.tts.caption"))
+
+                current_tts = config_manager.get_comfyui_config().get("tts", {})
+                cosyvoice_config = current_tts.get("cosyvoice", {})
+                cosyvoice_enabled = st.checkbox(
+                    tr("settings.tts.cosyvoice_enable"),
+                    value=bool(cosyvoice_config.get("enabled", False)),
+                    help=tr("settings.tts.cosyvoice_enable_help"),
+                    key="tts_cosyvoice_enabled_input",
+                )
+                cosyvoice_mode_options = ["sft", "instruct", "zero_shot"]
+                cosyvoice_mode_labels = {
+                    "sft": tr("settings.tts.cosyvoice_mode_sft"),
+                    "instruct": tr("settings.tts.cosyvoice_mode_instruct"),
+                    "zero_shot": tr("settings.tts.cosyvoice_mode_zero_shot"),
+                }
+                saved_mode = cosyvoice_config.get("mode", "sft")
+                cosyvoice_mode = st.selectbox(
+                    tr("settings.tts.cosyvoice_mode"),
+                    cosyvoice_mode_options,
+                    index=cosyvoice_mode_options.index(saved_mode) if saved_mode in cosyvoice_mode_options else 0,
+                    format_func=lambda x: cosyvoice_mode_labels[x],
+                    help=tr("settings.tts.cosyvoice_mode_help"),
+                    key="tts_cosyvoice_mode_input",
+                )
+                model_options = {
+                    "sft": ["iic/CosyVoice-300M-SFT"],
+                    "instruct": ["iic/CosyVoice-300M-Instruct"],
+                    "zero_shot": ["iic/CosyVoice-300M", "iic/CosyVoice2-0.5B", "iic/Fun-CosyVoice3-0.5B"],
+                }[cosyvoice_mode]
+                def is_matching_cosyvoice_model(mode: str, model: str) -> bool:
+                    model_lower = model.lower()
+                    if mode == "instruct":
+                        return "instruct" in model_lower
+                    if mode == "sft":
+                        return "sft" in model_lower
+                    return "sft" not in model_lower and "instruct" not in model_lower
+
+                cosy_model_col, cosy_speaker_col = st.columns(2)
+                with cosy_model_col:
+                    saved_model = cosyvoice_config.get("model", model_options[0])
+                    saved_mode = cosyvoice_config.get("mode", "sft")
+                    current_model = (
+                        saved_model
+                        if saved_mode == cosyvoice_mode and is_matching_cosyvoice_model(cosyvoice_mode, saved_model)
+                        else model_options[0]
+                    )
+                    model_select_options = model_options + [tr("settings.tts.cosyvoice_model_custom")]
+                    model_index = model_options.index(current_model) if current_model in model_options else len(model_select_options) - 1
+                    selected_model = st.selectbox(
+                        tr("settings.tts.cosyvoice_model"),
+                        model_select_options,
+                        index=model_index,
+                        help=tr("settings.tts.cosyvoice_model_help"),
+                        key="tts_cosyvoice_model_select",
+                    )
+                    if selected_model == tr("settings.tts.cosyvoice_model_custom"):
+                        cosyvoice_model = st.text_input(
+                            tr("settings.tts.cosyvoice_model_custom"),
+                            value=current_model,
+                            key="tts_cosyvoice_model_custom_input",
+                        )
+                    else:
+                        cosyvoice_model = selected_model
+                with cosy_speaker_col:
+                    cosyvoice_speakers = ["中文女", "中文男", "英文女", "英文男", "日语男", "粤语女", "韩语女"]
+                    saved_speaker = cosyvoice_config.get("speaker", "中文女")
+                    cosyvoice_speaker = st.selectbox(
+                        tr("settings.tts.cosyvoice_speaker"),
+                        cosyvoice_speakers,
+                        index=cosyvoice_speakers.index(saved_speaker) if saved_speaker in cosyvoice_speakers else 0,
+                        disabled=cosyvoice_mode == "zero_shot",
+                        key="tts_cosyvoice_speaker_input",
+                    )
+                cosyvoice_instruct = st.text_input(
+                    tr("settings.tts.cosyvoice_instruct"),
+                    value=cosyvoice_config.get("instruct", ""),
+                    help=tr("settings.tts.cosyvoice_instruct_help"),
+                    disabled=cosyvoice_mode != "instruct",
+                    key="tts_cosyvoice_instruct_input",
+                )
+                prompt_col, audio_col = st.columns(2)
+                with prompt_col:
+                    cosyvoice_prompt_text = st.text_input(
+                        tr("settings.tts.cosyvoice_prompt_text"),
+                        value=cosyvoice_config.get("prompt_text", ""),
+                        help=tr("settings.tts.cosyvoice_prompt_text_help"),
+                        disabled=cosyvoice_mode != "zero_shot",
+                        key="tts_cosyvoice_prompt_text_input",
+                    )
+                with audio_col:
+                    cosyvoice_prompt_audio = st.text_input(
+                        tr("settings.tts.cosyvoice_prompt_audio"),
+                        value=cosyvoice_config.get("prompt_audio", ""),
+                        help=tr("settings.tts.cosyvoice_prompt_audio_help"),
+                        disabled=cosyvoice_mode != "zero_shot",
+                        key="tts_cosyvoice_prompt_audio_input",
+                    )
+
+                if cosyvoice_enabled:
+                    cosy_status = get_cosyvoice_status()
+                    if cosy_status.installed:
+                        st.success(tr("settings.tts.cosyvoice_installed", path=cosy_status.repo_dir))
+                    else:
+                        st.warning(tr("settings.tts.cosyvoice_not_installed", message=cosy_status.message))
+                        if st.button(
+                            tr("settings.tts.cosyvoice_install"),
+                            key="settings_install_cosyvoice",
+                            use_container_width=True,
+                        ):
+                            with st.spinner(tr("settings.tts.cosyvoice_installing")):
+                                try:
+                                    installed_status = install_cosyvoice()
+                                    if installed_status.installed:
+                                        st.success(tr("settings.tts.cosyvoice_install_success", path=installed_status.repo_dir))
+                                    else:
+                                        st.error(installed_status.message)
+                                except Exception as e:
+                                    st.error(tr("settings.tts.cosyvoice_install_failed"))
+                                    st.code(str(e), language="text")
         
         # ====================================================================
         # Column 2: ComfyUI Settings
@@ -383,6 +507,13 @@ def render_advanced_settings():
                         dashscope_region=dashscope_region,
                         dashscope_base_url=dashscope_base_url,
                         dashscope_workspace=dashscope_workspace,
+                        tts_cosyvoice_enabled=cosyvoice_enabled,
+                        tts_cosyvoice_mode=cosyvoice_mode,
+                        tts_cosyvoice_model=cosyvoice_model,
+                        tts_cosyvoice_speaker=cosyvoice_speaker,
+                        tts_cosyvoice_instruct=cosyvoice_instruct,
+                        tts_cosyvoice_prompt_text=cosyvoice_prompt_text,
+                        tts_cosyvoice_prompt_audio=cosyvoice_prompt_audio,
                     )
 
                     # Save Bilibili default configuration

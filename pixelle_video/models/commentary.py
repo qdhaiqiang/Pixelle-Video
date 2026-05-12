@@ -60,8 +60,10 @@ class CommentaryConfig(BaseModel):
     """User-provided configuration for commentary generation"""
     source_video: str = Field(description="Absolute path to source video")
     target_duration: int = Field(default=300, ge=60, le=900, description="Target commentary duration in seconds (1-15 min)")
+    tts_inference_mode: str = Field(default="local", description="TTS engine: local, cosyvoice, or comfyui")
     tts_voice: str = Field(default="zh-CN-YunxiNeural", description="Edge TTS voice ID")
     tts_rate: str = Field(default="+18%", description="Edge TTS rate modifier")
+    tts_speed: float = Field(default=1.2, ge=0.5, le=2.0, description="TTS speed multiplier")
     narration_slot_ratio: float = Field(default=0.82, ge=0.55, le=1.0, description="Ratio of chunk duration for narration")
     bgm_path: Optional[str] = Field(default=None, description="Optional BGM file path")
     content_start: Optional[float] = Field(default=None, description="Manual override for story start (auto-detected if None)")

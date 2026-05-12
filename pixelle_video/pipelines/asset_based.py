@@ -473,7 +473,7 @@ class AssetBasedPipeline(LinearVideoPipeline):
             min_narration_words=5,
             max_narration_words=50,
             video_fps=30,
-            tts_inference_mode="local",
+            tts_inference_mode=context.params.get("tts_inference_mode", "local"),
             voice_id=context.params.get("voice_id", "zh-CN-YunjianNeural"),
             tts_speed=context.params.get("tts_speed", 1.2),
             media_width=media_width,
@@ -582,8 +582,10 @@ class AssetBasedPipeline(LinearVideoPipeline):
                 await self.core.tts(
                     text=narration_text,
                     output_path=str(audio_path),
-                    voice_id=config.voice_id,
-                    speed=config.tts_speed
+                    inference_mode=config.tts_inference_mode,
+                    voice=config.voice_id,
+                    speed=config.tts_speed,
+                    allow_instruct=False,
                 )
                 
                 narration_audios.append(str(audio_path))

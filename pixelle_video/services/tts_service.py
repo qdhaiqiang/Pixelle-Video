@@ -15,6 +15,7 @@ TTS (Text-to-Speech) Service - Supports both local and ComfyUI inference
 """
 
 import os
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -23,6 +24,12 @@ from comfykit import ComfyKit
 from loguru import logger
 
 from pixelle_video.services.comfy_base_service import ComfyBaseService
+from pixelle_video.services.cosyvoice_installer import (
+    REPO_DIR,
+    RUNNER_PATH,
+    get_cosyvoice_python,
+    get_cosyvoice_status,
+)
 from pixelle_video.utils.tts_util import edge_tts
 from pixelle_video.tts_voices import speed_to_rate
 
@@ -50,11 +57,15 @@ class TTSService(ComfyBaseService):
     WORKFLOW_PREFIX = "tts_"
     DEFAULT_WORKFLOW = None  # No hardcoded default, must be configured
     WORKFLOWS_DIR = "workflows"
-    COSYVOICE_WORKFLOW_HINT = (
-        "No CosyVoice TTS workflow found. Export the ComfyUI CosyVoice API workflow "
-        "as workflows/selfhost/tts_cosyvoice.json, or add a RunningHub wrapper named "
-        "workflows/runninghub/tts_cosyvoice.json."
+    COSYVOICE_INSTALL_HINT = (
+        "CosyVoice local model is not installed. Select CosyVoice Local Model in the UI "
+        "and click Install CosyVoice first."
     )
+    COSYVOICE_MODEL_BY_MODE = {
+        "sft": "iic/CosyVoice-300M-SFT",
+        "instruct": "iic/CosyVoice-300M-Instruct",
+        "zero_shot": "iic/CosyVoice-300M",
+    }
     
     def __init__(self, config: dict, core=None):
         """
@@ -119,8 +130,13 @@ class TTSService(ComfyBaseService):
         # Determine inference mode (param > config)
         mode = inference_mode or self.config.get("inference_mode", "local")
         if mode == "cosyvoice":
-            mode = "comfyui"
-            workflow = workflow or self._find_cosyvoice_workflow()
+            return await self._call_cosyvoice_tts(
+                text=text,
+                voice=voice,
+                speed=speed,
+                output_path=output_path,
+                **params,
+            )
         
         # Route to appropriate implementation
         if mode == "local":
@@ -163,11 +179,15 @@ class TTSService(ComfyBaseService):
         return sorted(workflows, key=lambda wf: (0 if wf.get("engine") == "cosyvoice" else 1, wf["key"]))
 
     def _find_cosyvoice_workflow(self) -> str:
-        """Return the first configured CosyVoice workflow key."""
-        for workflow in self.list_workflows():
+        """Return the first configured CosyVoice workflow key, preferring local selfhost."""
+        workflows = self.list_workflows()
+        for workflow in workflows:
+            if workflow.get("engine") == "cosyvoice" and workflow.get("source") == "selfhost":
+                return workflow["key"]
+        for workflow in workflows:
             if workflow.get("engine") == "cosyvoice":
                 return workflow["key"]
-        raise ValueError(self.COSYVOICE_WORKFLOW_HINT)
+        raise ValueError(self.COSYVOICE_INSTALL_HINT)
 
     @staticmethod
     def _detect_workflow_engine(workflow: Dict[str, Any]) -> str:
@@ -240,6 +260,98 @@ class TTSService(ComfyBaseService):
         except Exception as e:
             logger.error(f"Local TTS generation error: {e}")
             raise
+
+    async def _call_cosyvoice_tts(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        speed: Optional[float] = None,
+        output_path: Optional[str] = None,
+        **params,
+    ) -> str:
+        status = get_cosyvoice_status()
+        if not status.installed:
+            raise RuntimeError(status.message + ". " + self.COSYVOICE_INSTALL_HINT)
+
+        if not output_path:
+            unique_id = uuid.uuid4().hex
+            output_path = f"output/{unique_id}.mp3"
+            Path("output").mkdir(parents=True, exist_ok=True)
+
+        python_path = get_cosyvoice_python()
+        cosyvoice_config = self.config.get("cosyvoice", {})
+        model = (
+            params.get("model")
+            or params.get("cosyvoice_model")
+            or cosyvoice_config.get("model")
+            or self.COSYVOICE_MODEL_BY_MODE["sft"]
+        )
+        mode = params.get("mode") or params.get("cosyvoice_mode") or cosyvoice_config.get("mode") or "sft"
+        if mode == "instruct" and params.get("allow_instruct", True) is False:
+            logger.warning("CosyVoice instruct mode is disabled for this generation; falling back to SFT to avoid control text leakage.")
+            mode = "sft"
+            model = self.COSYVOICE_MODEL_BY_MODE["sft"]
+        self._validate_cosyvoice_mode_model(mode, str(model))
+        speaker = params.get("speaker") or voice or params.get("voice") or cosyvoice_config.get("speaker") or "中文女"
+        final_speed = speed if speed is not None else params.get("tts_speed", 1.0)
+        instruct = params.get("instruct") or cosyvoice_config.get("instruct") or ""
+        if mode != "instruct":
+            instruct = ""
+        prompt_text = params.get("prompt_text") or cosyvoice_config.get("prompt_text") or ""
+        prompt_audio = params.get("prompt_audio") or params.get("ref_audio") or cosyvoice_config.get("prompt_audio") or ""
+
+        cmd = [
+            str(python_path),
+            str(RUNNER_PATH),
+            "--repo-dir",
+            str(REPO_DIR),
+            "--text",
+            text,
+            "--output",
+            output_path,
+            "--model",
+            str(model),
+            "--mode",
+            str(mode),
+            "--speaker",
+            str(speaker),
+            "--speed",
+            str(final_speed),
+            "--instruct",
+            str(instruct),
+            "--prompt-text",
+            str(prompt_text),
+            "--prompt-audio",
+            str(prompt_audio),
+        ]
+        logger.info(f"🎙️  Using local CosyVoice: mode={mode}, model={model}, speaker={speaker}, speed={final_speed}x")
+        result = subprocess.run(cmd, text=True, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                "CosyVoice generation failed:\n"
+                f"Command: {' '.join(cmd)}\n"
+                f"STDOUT:\n{result.stdout.strip()}\n"
+                f"STDERR:\n{result.stderr.strip()}"
+            )
+        logger.info(f"✅ Generated audio (local CosyVoice): {output_path}")
+        return output_path
+
+    @staticmethod
+    def _validate_cosyvoice_mode_model(mode: str, model: str) -> None:
+        model_lower = model.lower()
+        if mode == "instruct" and "instruct" not in model_lower:
+            raise ValueError(
+                "CosyVoice 配置错误：指令语气必须使用 Instruct 模型，例如 iic/CosyVoice-300M-Instruct。"
+                "当前模型不是 Instruct，已停止生成，避免把语气指令混入视频。"
+            )
+        if mode == "sft" and "sft" not in model_lower:
+            raise ValueError(
+                "CosyVoice 配置错误：预置音色必须使用 SFT 模型，例如 iic/CosyVoice-300M-SFT。"
+            )
+        if mode == "zero_shot" and ("sft" in model_lower or "instruct" in model_lower):
+            raise ValueError(
+                "CosyVoice 配置错误：参考音频复刻必须使用基础模型，不能使用 SFT/Instruct 模型。"
+            )
     
     async def _call_comfyui_workflow(
         self,
