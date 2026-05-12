@@ -140,6 +140,7 @@ class ScreenRecordingProcessor:
         if synthesize_dubbing and pace_mode == "smart_compress" and source_duration > 0:
             self._report(progress_callback, "synthesizing_dubbing", 0.64)
             assert dubbed_audio is not None
+            segments = self._merge_short_speech_segments(segments)
             segments, timeline_ranges, render_duration = await self._synthesize_dubbing_voice_paced(
                 segments=segments,
                 output_audio=dubbed_audio,
@@ -328,6 +329,53 @@ class ScreenRecordingProcessor:
         if not result:
             raise RuntimeError("No speech segments found in the input video")
         return result
+
+    @staticmethod
+    def _merge_short_speech_segments(
+        segments: list[SubtitleSegment],
+        max_gap: float = 1.4,
+        min_chars: int = 26,
+        max_chars: int = 92,
+    ) -> list[SubtitleSegment]:
+        if not segments:
+            return []
+
+        merged: list[SubtitleSegment] = []
+        current = SubtitleSegment(segments[0].start, segments[0].end, segments[0].text)
+
+        for segment in segments[1:]:
+            gap = max(0.0, segment.start - current.end)
+            combined_text = ScreenRecordingProcessor._join_narration_text(current.text, segment.text)
+            should_merge = (
+                gap <= max_gap
+                and len(combined_text) <= max_chars
+                and (
+                    len(current.text) < min_chars
+                    or len(segment.text) < min_chars
+                    or len(combined_text) <= max_chars
+                )
+            )
+
+            if should_merge:
+                current = SubtitleSegment(current.start, segment.end, combined_text)
+            else:
+                merged.append(current)
+                current = SubtitleSegment(segment.start, segment.end, segment.text)
+
+        merged.append(current)
+        return merged
+
+    @staticmethod
+    def _join_narration_text(left: str, right: str) -> str:
+        left = left.strip()
+        right = right.strip()
+        if not left:
+            return right
+        if not right:
+            return left
+        if left[-1] in "。！？.!?；;":
+            return left + right
+        return left + "，" + right
 
     async def _polish_segments_with_ai(
         self,
