@@ -136,7 +136,27 @@ class ScreenRecordingProcessor:
         render_source_video = source_video
         render_duration = source_duration
         timeline_ranges = None
-        if pace_mode == "smart_compress" and source_duration > 0:
+        dubbing_synthesized = False
+        if synthesize_dubbing and pace_mode == "smart_compress" and source_duration > 0:
+            self._report(progress_callback, "synthesizing_dubbing", 0.64)
+            assert dubbed_audio is not None
+            segments, timeline_ranges, render_duration = await self._synthesize_dubbing_voice_paced(
+                segments=segments,
+                output_audio=dubbed_audio,
+                source_duration=source_duration,
+                tts_inference_mode=tts_inference_mode,
+                tts_voice=tts_voice,
+                tts_speed=tts_speed,
+                tts_workflow=tts_workflow,
+                ref_audio=ref_audio,
+            )
+            if timeline_ranges and render_duration < source_duration - 0.5:
+                self._report(progress_callback, "compressing_timeline", 0.72)
+                compact_video = work_dir / "compact_source.mp4"
+                self._render_clip_timeline(source_video, timeline_ranges, compact_video)
+                render_source_video = compact_video
+            dubbing_synthesized = True
+        elif pace_mode == "smart_compress" and source_duration > 0:
             timeline_ranges = self._build_compact_ranges(
                 segments=segments,
                 source_duration=source_duration,
@@ -159,7 +179,7 @@ class ScreenRecordingProcessor:
         self._write_srt(segments, srt_path)
         self._write_ass(segments, ass_path)
 
-        if synthesize_dubbing:
+        if synthesize_dubbing and not dubbing_synthesized:
             self._report(progress_callback, "synthesizing_dubbing", 0.68)
             assert dubbed_audio is not None
             await self._synthesize_dubbing(
@@ -414,6 +434,90 @@ class ScreenRecordingProcessor:
             ],
             check=True,
         )
+
+    async def _synthesize_dubbing_voice_paced(
+        self,
+        segments: list[SubtitleSegment],
+        output_audio: Path,
+        source_duration: float,
+        tts_inference_mode: str,
+        tts_voice: str,
+        tts_speed: float,
+        tts_workflow: Optional[str],
+        ref_audio: Optional[str],
+    ) -> tuple[list[SubtitleSegment], list[tuple[float, float]], float]:
+        tts_dir = output_audio.parent / "tts_segments"
+        tts_dir.mkdir(parents=True, exist_ok=True)
+
+        concat_lines: list[str] = []
+        compact_ranges: list[tuple[float, float]] = []
+        remapped_segments: list[SubtitleSegment] = []
+        cursor = 0.0
+        inter_segment_gap = 0.22
+        lead_padding = 0.12
+
+        for idx, seg in enumerate(segments):
+            gap = 0.0 if idx == 0 else inter_segment_gap
+            if gap > 0.03:
+                silence = tts_dir / f"gap_{idx:03d}.mp3"
+                self._make_silence(silence, gap)
+                concat_lines.append(f"file '{silence.resolve()}'")
+                cursor += gap
+
+            raw_audio = tts_dir / f"tts_{idx:03d}.mp3"
+            tts_params = {
+                "text": seg.text,
+                "inference_mode": tts_inference_mode,
+                "output_path": str(raw_audio),
+            }
+            if tts_inference_mode == "local":
+                tts_params["voice"] = tts_voice
+                tts_params["speed"] = tts_speed
+            else:
+                if tts_workflow:
+                    tts_params["workflow"] = tts_workflow
+                if ref_audio:
+                    tts_params["ref_audio"] = ref_audio
+            await self.core.tts(**tts_params)
+
+            raw_duration = max(0.1, self._probe_duration(raw_audio))
+            original_duration = max(0.1, seg.end - seg.start)
+            voice_duration = min(raw_duration, original_duration)
+            aligned_audio = tts_dir / f"aligned_{idx:03d}.mp3"
+            self._fit_audio_to_duration(raw_audio, aligned_audio, voice_duration)
+            concat_lines.append(f"file '{aligned_audio.resolve()}'")
+
+            segment_start = cursor
+            segment_end = cursor + voice_duration
+            remapped_segments.append(SubtitleSegment(segment_start, segment_end, seg.text))
+
+            range_duration = gap + voice_duration
+            desired_source_start = max(0.0, seg.start - (gap if idx > 0 else lead_padding))
+            source_start = min(desired_source_start, max(0.0, source_duration - range_duration))
+            source_end = min(source_duration, source_start + range_duration)
+            if source_end - source_start > 0.05:
+                compact_ranges.append((source_start, source_end))
+
+            cursor = segment_end
+
+        tail_gap = 0.15
+        if tail_gap > 0.03:
+            silence = tts_dir / "gap_tail.mp3"
+            self._make_silence(silence, tail_gap)
+            concat_lines.append(f"file '{silence.resolve()}'")
+            cursor += tail_gap
+
+        concat_path = tts_dir / "concat.txt"
+        concat_path.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
+        subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0",
+                "-i", str(concat_path), "-t", f"{cursor:.3f}",
+                "-c:a", "libmp3lame", "-q:a", "4", str(output_audio),
+            ],
+            check=True,
+        )
+        return remapped_segments, compact_ranges, cursor
 
     def _render_video(
         self,
