@@ -208,7 +208,7 @@ class ScreenRecordingProcessor:
         self._report(progress_callback, "exporting_materials", 0.92)
         materials_zip = self._export_materials(
             source_video=source_video,
-            processed_video=processed_video,
+            timeline_video=render_source_video,
             materials_dir=materials_dir,
             srt_path=srt_path,
             ass_path=ass_path,
@@ -723,7 +723,7 @@ class ScreenRecordingProcessor:
     def _export_materials(
         self,
         source_video: Path,
-        processed_video: Path,
+        timeline_video: Path,
         materials_dir: Path,
         srt_path: Path,
         ass_path: Path,
@@ -735,7 +735,7 @@ class ScreenRecordingProcessor:
         correction_path: Optional[Path],
     ) -> Path:
         self._copy_or_link(source_video, materials_dir / "01_original_video" / source_video.name)
-        self._copy_or_link(processed_video, materials_dir / "02_processed_video" / processed_video.name)
+        self._copy_or_link(timeline_video, materials_dir / "02_timeline_video" / timeline_video.name)
         self._copy_or_link(srt_path, materials_dir / "03_subtitles" / "subtitles.srt")
         self._copy_or_link(ass_path, materials_dir / "03_subtitles" / "subtitles.ass")
         self._copy_or_link(segments_json, materials_dir / "04_transcript" / "segments.json")
@@ -754,12 +754,12 @@ class ScreenRecordingProcessor:
         readme.write_text(
             "# 录屏处理素材包\n\n"
             "- `01_original_video/`: 原始录屏视频\n"
-            "- `02_processed_video/`: 已烧录字幕的视频\n"
-            "- `03_subtitles/`: 可导入剪映继续编辑的 SRT/ASS 字幕\n"
+            "- `02_timeline_video/`: 已按节奏处理但未烧录字幕、未混入配音和背景音乐的视频底板\n"
+            "- `03_subtitles/`: 可导入剪映继续编辑的 SRT/ASS 字幕，请与 `02_timeline_video/` 中的视频对齐使用\n"
             "- `04_transcript/`: ASR 原始结果与清洗后的分段\n"
-            "- `05_dubbing/`: 可选配音合成音频\n"
+            "- `05_dubbing/`: 可选配音合成音频，请作为独立音轨导入剪映\n"
             "- `06_rules/`: 本次使用的术语/修正规则文件\n"
-            "- `07_bgm/`: 本次选择的背景音乐\n",
+            "- `07_bgm/`: 本次选择的背景音乐，请作为独立音轨导入剪映\n",
             encoding="utf-8",
         )
 
