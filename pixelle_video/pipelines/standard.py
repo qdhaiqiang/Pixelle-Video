@@ -272,6 +272,7 @@ class StandardPipeline(LinearVideoPipeline):
             media_width=ctx.params.get("media_width"),
             media_height=ctx.params.get("media_height"),
             media_workflow=ctx.params.get("media_workflow"),
+            media_scale_mode=ctx.params.get("media_scale_mode", "contain"),
             frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
             template_params=ctx.params.get("template_params")
         )
@@ -470,6 +471,24 @@ class StandardPipeline(LinearVideoPipeline):
         """
         Persist task metadata and storyboard to filesystem
         """
+        def make_json_safe(value):
+            """Convert common Python model objects in params to JSON-safe values."""
+            from dataclasses import asdict, is_dataclass
+            from pathlib import Path
+            from pydantic import BaseModel
+
+            if is_dataclass(value):
+                return make_json_safe(asdict(value))
+            if isinstance(value, BaseModel):
+                return make_json_safe(value.model_dump())
+            if isinstance(value, Path):
+                return str(value)
+            if isinstance(value, dict):
+                return {str(k): make_json_safe(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple, set)):
+                return [make_json_safe(item) for item in value]
+            return value
+
         try:
             storyboard = ctx.storyboard
             result = ctx.result
@@ -480,7 +499,7 @@ class StandardPipeline(LinearVideoPipeline):
                 return
             
             # Build metadata
-            input_with_title = ctx.params.copy()
+            input_with_title = make_json_safe(ctx.params.copy())
             input_with_title["text"] = ctx.input_text # Ensure text is included
             if not input_with_title.get("title"):
                 input_with_title["title"] = storyboard.title

@@ -360,7 +360,7 @@ class FrameProcessor:
                 video=frame.video_path,
                 overlay_image=frame.composed_image_path,
                 output=temp_video_with_overlay,
-                scale_mode="contain"  # Scale video to fit template size (contain mode)
+                scale_mode=config.media_scale_mode
             )
             
             # Step 2: Add narration audio to the overlaid video

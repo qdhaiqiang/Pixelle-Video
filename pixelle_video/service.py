@@ -34,6 +34,7 @@ from pixelle_video.services.frame_processor import FrameProcessor
 from pixelle_video.services.persistence import PersistenceService
 from pixelle_video.services.history_manager import HistoryManager
 from pixelle_video.pipelines.standard import StandardPipeline
+from pixelle_video.pipelines.story_lesson import StoryLessonPipeline
 from pixelle_video.pipelines.custom import CustomPipeline
 from pixelle_video.pipelines.asset_based import AssetBasedPipeline
 from pixelle_video.pipelines.commentary import CommentaryPipeline
@@ -209,6 +210,7 @@ class PixelleVideoCore:
         # 2. Register video generation pipelines
         self.pipelines = {
             "standard": StandardPipeline(self),
+            "story_lesson": StoryLessonPipeline(self),
             "custom": CustomPipeline(self),
             "asset_based": AssetBasedPipeline(self),
             "commentary": CommentaryPipeline(self),

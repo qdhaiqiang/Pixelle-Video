@@ -20,6 +20,7 @@ Centralized prompt management for all LLM interactions.
 from pixelle_video.prompts.topic_narration import build_topic_narration_prompt
 from pixelle_video.prompts.content_narration import build_content_narration_prompt
 from pixelle_video.prompts.title_generation import build_title_generation_prompt
+from pixelle_video.prompts.story_lesson import build_story_lesson_prompt
 
 # Image prompts
 from pixelle_video.prompts.image_generation import (
@@ -35,6 +36,7 @@ __all__ = [
     "build_topic_narration_prompt",
     "build_content_narration_prompt",
     "build_title_generation_prompt",
+    "build_story_lesson_prompt",
     
     # Image builders
     "build_image_prompt_prompt",

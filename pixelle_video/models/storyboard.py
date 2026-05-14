@@ -48,6 +48,7 @@ class StoryboardConfig:
     
     # Media workflow
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
+    media_scale_mode: str = "contain"         # For video media: contain, cover, or stretch
     
     # Frame template (includes size information in path)
     frame_template: str = "1080x1920/default.html"  # Template path with size (e.g., "1080x1920/default.html")
@@ -143,4 +144,3 @@ class VideoGenerationResult:
     additional_video_paths: List[str] = field(default_factory=list)  # Extra segments
     cover_paths: List[str] = field(default_factory=list)  # Cover image paths per segment
     segment_titles: List[str] = field(default_factory=list)  # Per-segment Bilibili titles
-

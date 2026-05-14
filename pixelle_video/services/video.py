@@ -202,7 +202,7 @@ class VideoService:
             (
                 ffmpeg
                 .input(filelist, format='concat', safe=0)
-                .output(output, c='copy')
+                .output(output, c='copy', movflags='+faststart')
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
             )
@@ -240,6 +240,7 @@ class VideoService:
                 '-filter_complex', filter_complex,
                 '-map', '[v]',
                 '-map', '[a]',
+                '-movflags', '+faststart',
                 '-y',  # Overwrite output
                 output
             ])
@@ -455,7 +456,8 @@ class VideoService:
                         output,
                         vcodec='libx264',  # Re-encode video if padded
                         acodec='aac',
-                        audio_bitrate='192k'
+                        audio_bitrate='192k',
+                        movflags='+faststart'
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -482,7 +484,8 @@ class VideoService:
                         output,
                         vcodec='libx264',  # Re-encode video if padded
                         acodec='aac',
-                        audio_bitrate='192k'
+                        audio_bitrate='192k',
+                        movflags='+faststart'
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -507,7 +510,8 @@ class VideoService:
                         output,
                         vcodec='libx264',  # Re-encode video if padded
                         acodec='aac',
-                        audio_bitrate='192k'
+                        audio_bitrate='192k',
+                        movflags='+faststart'
                     )
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
@@ -594,7 +598,8 @@ class VideoService:
                         vcodec='libx264',
                         pix_fmt='yuv420p',
                         preset='medium',
-                        crf=23)
+                        crf=23,
+                        movflags='+faststart')
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
             )
@@ -668,6 +673,7 @@ class VideoService:
                     audio_bitrate='192k',
                     preset='medium',
                     crf=23,
+                    movflags='+faststart',
                     **{'b:v': '2M'}  # Video bitrate
                 )
                 .overwrite_output()
@@ -754,7 +760,8 @@ class VideoService:
                     output,
                     vcodec='copy',
                     acodec='aac',
-                    audio_bitrate='192k'
+                    audio_bitrate='192k',
+                    movflags='+faststart'
                 )
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
@@ -1004,4 +1011,3 @@ class VideoService:
             error_msg = e.stderr.decode() if e.stderr else str(e)
             logger.error(f"FFmpeg error padding video: {error_msg}")
             raise RuntimeError(f"Failed to pad video: {error_msg}")
-

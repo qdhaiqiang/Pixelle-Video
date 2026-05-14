@@ -20,6 +20,7 @@ import json
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import subprocess
 from loguru import logger
 
 from pixelle_video.models.storyboard import Storyboard, StoryboardFrame, StoryboardConfig, ContentMetadata
@@ -122,6 +123,14 @@ class PersistenceService:
                 metadata["created_at"] = metadata["created_at"].isoformat()
             if "completed_at" in metadata and isinstance(metadata["completed_at"], datetime):
                 metadata["completed_at"] = metadata["completed_at"].isoformat()
+
+            result = metadata.get("result")
+            if isinstance(result, dict):
+                video_path = result.get("video_path")
+                if video_path:
+                    probed_duration = self._probe_media_duration(video_path)
+                    if probed_duration > 0:
+                        result["duration"] = probed_duration
             
             with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -383,6 +392,7 @@ class PersistenceService:
             "media_width": config.media_width,
             "media_height": config.media_height,
             "media_workflow": config.media_workflow,
+            "media_scale_mode": config.media_scale_mode,
             "frame_template": config.frame_template,
             "template_params": config.template_params,
         }
@@ -405,6 +415,7 @@ class PersistenceService:
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
+            media_scale_mode=data.get("media_scale_mode", "contain"),
             frame_template=data.get("frame_template", "1080x1920/default.html"),
             template_params=data.get("template_params"),
         )
@@ -514,17 +525,24 @@ class PersistenceService:
         
         # Extract key info for index
         result = metadata.get("result", {})
+        video_path = result.get("video_path")
+        duration = result.get("duration", 0) or 0
+        if video_path:
+            probed_duration = self._probe_media_duration(video_path)
+            if probed_duration > 0:
+                duration = probed_duration
+
         index_entry = {
             "task_id": task_id,
             "created_at": metadata.get("created_at"),
             "completed_at": metadata.get("completed_at"),
             "status": metadata.get("status", "unknown"),
             "title": title,
-            "duration": result.get("duration", 0),
+            "duration": duration,
             "n_frames": result.get("n_frames", 0),
             "file_size": result.get("file_size", 0),
-            "video_path": result.get("video_path"),
-            "video_paths": result.get("video_paths", [result.get("video_path")] if result.get("video_path") else []),
+            "video_path": video_path,
+            "video_paths": result.get("video_paths", [video_path] if video_path else []),
         }
         
         # Update or append
@@ -570,20 +588,55 @@ class PersistenceService:
                             title = "Untitled"
                 
                 # Add to index
+                result = metadata.get("result", {})
+                video_path = result.get("video_path")
+                duration = result.get("duration", 0) or 0
+                if video_path:
+                    probed_duration = self._probe_media_duration(video_path)
+                    if probed_duration > 0:
+                        duration = probed_duration
+
                 index["tasks"].append({
                     "task_id": task_id,
                     "created_at": metadata.get("created_at"),
                     "completed_at": metadata.get("completed_at"),
                     "status": metadata.get("status", "unknown"),
                     "title": title,
-                    "duration": metadata.get("result", {}).get("duration", 0),
-                    "n_frames": metadata.get("result", {}).get("n_frames", 0),
-                    "file_size": metadata.get("result", {}).get("file_size", 0),
-                    "video_path": metadata.get("result", {}).get("video_path"),
+                    "duration": duration,
+                    "n_frames": result.get("n_frames", 0),
+                    "file_size": result.get("file_size", 0),
+                    "video_path": video_path,
+                    "video_paths": result.get("video_paths", [video_path] if video_path else []),
                 })
         
         self._save_index(index)
         logger.info(f"Index rebuilt: {len(index['tasks'])} tasks")
+
+    def _probe_media_duration(self, media_path: str) -> float:
+        """Read media duration with ffprobe as a fallback for incomplete metadata."""
+        if not media_path or not Path(media_path).exists():
+            return 0.0
+
+        try:
+            completed = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    media_path,
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return float(completed.stdout.strip())
+        except Exception as e:
+            logger.warning(f"Failed to probe media duration for {media_path}: {e}")
+            return 0.0
     
     # ========================================================================
     # Paginated Listing
@@ -703,7 +756,7 @@ class PersistenceService:
             # Update index
             index = self._load_index()
             tasks = index.get("tasks", [])
-            tasks = [t for t in tasks if t["task_id"] != task_id]
+            tasks = [t for t in tasks if t.get("task_id") != task_id]
             index["tasks"] = tasks
             self._save_index(index)
             
@@ -711,4 +764,3 @@ class PersistenceService:
         except Exception as e:
             logger.error(f"Failed to delete task {task_id}: {e}")
             return False
-

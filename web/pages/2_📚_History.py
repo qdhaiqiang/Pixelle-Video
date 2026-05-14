@@ -161,6 +161,35 @@ def render_sidebar_controls(pixelle_video):
         return filter_status, sort_by, sort_order, page_size
 
 
+def handle_pending_delete(pixelle_video):
+    """Process delete requests before rendering task cards."""
+    task_id = st.session_state.pop("history_pending_delete_task", None)
+    if not task_id:
+        notice = st.session_state.pop("history_notice", None)
+        if notice:
+            level, message = notice
+            if level == "success":
+                st.success(message)
+            else:
+                st.error(message)
+        return
+
+    try:
+        success = run_async(pixelle_video.history.delete_task(task_id))
+        if success:
+            # Clear stale per-task UI state so the deleted card cannot re-open itself.
+            for key in list(st.session_state.keys()):
+                if key.endswith(f"_{task_id}") or key in {f"confirm_delete_{task_id}", f"detail_{task_id}"}:
+                    del st.session_state[key]
+            st.session_state["history_notice"] = ("success", tr("history.action.delete_success"))
+        else:
+            st.session_state["history_notice"] = ("error", "删除失败")
+    except Exception as e:
+        st.session_state["history_notice"] = ("error", f"删除失败: {str(e)}")
+
+    st.rerun()
+
+
 def render_grid_task_card(task: dict, pixelle_video):
     """Render a compact grid task card"""
     task_id = task["task_id"]
@@ -250,16 +279,9 @@ def render_grid_task_card(task: dict, pixelle_video):
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("✅", key=f"confirm_yes_{task_id}", use_container_width=True):
-                    try:
-                        success = run_async(pixelle_video.history.delete_task(task_id))
-                        if success:
-                            st.success(tr("history.action.delete_success"))
-                            st.session_state[f"confirm_delete_{task_id}"] = False
-                            st.rerun()
-                        else:
-                            st.error("删除失败")
-                    except Exception as e:
-                        st.error(f"删除失败: {str(e)}")
+                    st.session_state[f"confirm_delete_{task_id}"] = False
+                    st.session_state["history_pending_delete_task"] = task_id
+                    st.rerun()
             with col2:
                 if st.button("❌", key=f"confirm_no_{task_id}", use_container_width=True):
                     st.session_state[f"confirm_delete_{task_id}"] = False
@@ -392,6 +414,8 @@ def main():
     
     # Initialize Pixelle-Video
     pixelle_video = get_pixelle_video()
+
+    handle_pending_delete(pixelle_video)
     
     # Sidebar: Statistics + Filters
     filter_status, sort_by, sort_order, page_size = render_sidebar_controls(pixelle_video)

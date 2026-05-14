@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="template:media-width" content="1080">
+    <meta name="template:media-height" content="1920">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 1080px;
+            height: 1920px;
+            overflow: hidden;
+            font-family: 'PingFang SC', 'Source Han Sans', 'Microsoft YaHei', sans-serif;
+            background: #000;
+        }
+
+        .page {
+            position: relative;
+            width: 1080px;
+            height: 1920px;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        .media {
+            position: absolute;
+            inset: 0;
+            background-image: url("{{image}}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        .shade {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to bottom,
+                    rgba(0, 0, 0, 0.34) 0%,
+                    rgba(0, 0, 0, 0.05) 30%,
+                    rgba(0, 0, 0, 0.06) 58%,
+                    rgba(0, 0, 0, 0.78) 100%);
+        }
+
+        .title {
+            position: absolute;
+            top: 86px;
+            left: 72px;
+            right: 72px;
+            font-size: 72px;
+            font-weight: 800;
+            line-height: 1.16;
+            text-align: center;
+            text-shadow: 0 4px 18px rgba(0, 0, 0, 0.62);
+        }
+
+        .title:empty {
+            display: none;
+        }
+
+        .subtitle {
+            position: absolute;
+            left: 76px;
+            right: 76px;
+            bottom: 112px;
+            font-size: 48px;
+            font-weight: 700;
+            line-height: 1.48;
+            text-align: center;
+            text-shadow:
+                0 3px 10px rgba(0, 0, 0, 0.92),
+                0 0 20px rgba(0, 0, 0, 0.72);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="page">
+        <div class="media"></div>
+        <div class="shade"></div>
+        <div class="title">{{title}}</div>
+        <div class="subtitle">{{text}}</div>
+    </div>
+</body>
+
+</html>
