@@ -272,8 +272,13 @@ class StandardPipeline(LinearVideoPipeline):
             media_width=ctx.params.get("media_width"),
             media_height=ctx.params.get("media_height"),
             media_workflow=ctx.params.get("media_workflow"),
+            media_mode=ctx.params.get("media_mode", "image"),
+            image_media_workflow=ctx.params.get("image_media_workflow"),
+            video_media_workflow=ctx.params.get("video_media_workflow"),
+            mixed_video_frame_indices=ctx.params.get("mixed_video_frame_indices", []),
             media_scale_mode=ctx.params.get("media_scale_mode", "contain"),
             frame_template=ctx.params.get("frame_template") or "1080x1920/default.html",
+            video_frame_template=ctx.params.get("video_frame_template"),
             template_params=ctx.params.get("template_params")
         )
         

@@ -51,6 +51,26 @@ def _get_template_preview_path(template_path: str, language: str = "zh_CN") -> s
     return ""
 
 
+def _select_mixed_video_frame_indices(n_scenes: int, video_count: int) -> list[int]:
+    """Pick representative 0-based key frames for mixed image/video generation."""
+    if n_scenes <= 0 or video_count <= 0:
+        return []
+
+    if video_count == 1:
+        candidates = [n_scenes // 2]
+    elif video_count == 2:
+        candidates = [max(0, n_scenes // 3), max(0, (n_scenes * 2) // 3)]
+    else:
+        candidates = [max(0, n_scenes // 4), n_scenes // 2, max(0, (n_scenes * 3) // 4)]
+
+    result = []
+    for index in candidates:
+        clamped = min(max(index, 0), n_scenes - 1)
+        if clamped not in result:
+            result.append(clamped)
+    return result[:video_count]
+
+
 class StoryLessonPipelineUI(PipelineUI):
     """UI for the story lesson video generation pipeline."""
 
@@ -418,6 +438,7 @@ class StoryLessonPipelineUI(PipelineUI):
             template_type_options = {
                 "image": tr("template.type.image"),
                 "video": tr("template.type.video"),
+                "mixed": tr("template.type.mixed"),
             }
             selected_template_type = st.radio(
                 tr("template.type_selector"),
@@ -427,6 +448,7 @@ class StoryLessonPipelineUI(PipelineUI):
                 horizontal=True,
                 key="story_template_type_selector",
             )
+            template_gallery_type = "image" if selected_template_type == "mixed" else selected_template_type
 
             st.markdown(f"**{tr('section.template')}**")
 
@@ -441,7 +463,7 @@ class StoryLessonPipelineUI(PipelineUI):
                 "1920x1080": tr("story_lesson.aspect.landscape"),
                 "1080x1080": tr("story_lesson.aspect.square"),
             }
-            grouped_templates = get_templates_grouped_by_size_and_type(selected_template_type)
+            grouped_templates = get_templates_grouped_by_size_and_type(template_gallery_type)
             available_orientations = [
                 size
                 for size in orientation_options
@@ -450,6 +472,11 @@ class StoryLessonPipelineUI(PipelineUI):
                     for template in grouped_templates.get(size, [])
                 )
             ]
+            if selected_template_type == "mixed":
+                available_orientations = [
+                    size for size in available_orientations
+                    if size == "1080x1920"
+                ]
             if not available_orientations:
                 available_orientations = ["1080x1920"]
 
@@ -475,7 +502,7 @@ class StoryLessonPipelineUI(PipelineUI):
 
             default_template = (
                 "1080x1920/image_story_fullscreen.html"
-                if selected_template_type == "image"
+                if template_gallery_type == "image"
                 else "1080x1920/video_live_fullscreen.html"
             )
             template_paths = [item[0] for item in template_options]
@@ -485,7 +512,7 @@ class StoryLessonPipelineUI(PipelineUI):
                 st.warning(tr("template.no_templates_with_preview"))
                 frame_template = default_template
             else:
-                state_key = f"story_selected_template_{selected_template_type}_{selected_orientation}"
+                state_key = f"story_selected_template_{template_gallery_type}_{selected_orientation}"
                 legacy_center_templates = {
                     "1080x1920/image_default.html",
                     "1080x1920/video_story_portrait.html",
@@ -531,7 +558,7 @@ class StoryLessonPipelineUI(PipelineUI):
                             is_selected = st.session_state[state_key] == template_path
                             if st.button(
                                 tr("template.selected") if is_selected else tr("template.select_button"),
-                                key=f"story_template_{selected_template_type}_{selected_orientation}_{template_path}",
+                                key=f"story_template_{template_gallery_type}_{selected_orientation}_{template_path}",
                                 use_container_width=True,
                                 type="primary" if is_selected else "secondary",
                             ):
@@ -550,29 +577,94 @@ class StoryLessonPipelineUI(PipelineUI):
             st.info(tr(size_info_key, width=media_width, height=media_height))
 
             all_workflows = pixelle_video.media.list_workflows()
-            if selected_template_type == "video":
-                workflows = [wf for wf in all_workflows if "video_" in wf["key"].lower()]
-                media_config_key = "video"
-            else:
-                workflows = [wf for wf in all_workflows if "image_" in wf["key"].lower()]
-                media_config_key = "image"
-
-            workflow_options = [wf["display_name"] for wf in workflows]
-            workflow_keys = [wf["key"] for wf in workflows]
             comfyui_config = config_manager.get_comfyui_config()
-            saved_workflow = comfyui_config.get(media_config_key, {}).get("default_workflow", "")
-            default_workflow_index = workflow_keys.index(saved_workflow) if saved_workflow in workflow_keys else 0
+            image_workflows = [wf for wf in all_workflows if "image_" in wf["key"].lower()]
+            video_workflows = [
+                wf for wf in all_workflows
+                if "video_" in wf["key"].lower() or "i2v_" in wf["key"].lower()
+            ]
 
-            workflow_display = st.selectbox(
-                "Workflow",
-                workflow_options if workflow_options else ["No workflows found"],
-                index=default_workflow_index,
-                label_visibility="collapsed",
-                key=f"story_media_workflow_select_{selected_template_type}",
-            )
-            media_workflow = workflow_keys[workflow_options.index(workflow_display)] if workflow_options else None
-            if media_workflow:
-                check_and_warn_selfhost_workflow(media_workflow)
+            def select_workflow(workflows: list[dict], key: str, saved_workflow: str = "", preferred_workflow: str = "") -> str | None:
+                workflow_options = [wf["display_name"] for wf in workflows]
+                workflow_keys = [wf["key"] for wf in workflows]
+                if not workflow_keys:
+                    st.selectbox(
+                        "Workflow",
+                        ["No workflows found"],
+                        index=0,
+                        label_visibility="collapsed",
+                        key=key,
+                    )
+                    return None
+
+                default_workflow = saved_workflow if saved_workflow in workflow_keys else preferred_workflow
+                default_workflow_index = workflow_keys.index(default_workflow) if default_workflow in workflow_keys else 0
+                workflow_display = st.selectbox(
+                    "Workflow",
+                    workflow_options,
+                    index=default_workflow_index,
+                    label_visibility="collapsed",
+                    key=key,
+                )
+                selected_workflow = workflow_keys[workflow_options.index(workflow_display)]
+                check_and_warn_selfhost_workflow(selected_workflow)
+                return selected_workflow
+
+            saved_image_workflow = comfyui_config.get("image", {}).get("default_workflow", "")
+            saved_video_workflow = comfyui_config.get("video", {}).get("default_workflow", "")
+            preferred_i2v_workflow = "dashscope/i2v_wan2.6_flash.json"
+
+            image_media_workflow = None
+            video_media_workflow = None
+            media_workflow = None
+            if selected_template_type == "image":
+                image_media_workflow = select_workflow(
+                    image_workflows,
+                    key="story_image_workflow_select",
+                    saved_workflow=saved_image_workflow,
+                )
+                media_workflow = image_media_workflow
+            elif selected_template_type == "video":
+                st.caption(tr("story_lesson.video_workflow_hint"))
+                video_media_workflow = select_workflow(
+                    video_workflows,
+                    key="story_video_workflow_select",
+                    saved_workflow=saved_video_workflow,
+                    preferred_workflow=preferred_i2v_workflow,
+                )
+                if video_media_workflow and "i2v_" in video_media_workflow.lower():
+                    image_media_workflow = select_workflow(
+                        image_workflows,
+                        key="story_video_source_image_workflow_select",
+                        saved_workflow=saved_image_workflow,
+                    )
+                media_workflow = video_media_workflow
+            else:
+                st.caption(tr("story_lesson.mixed_mode_hint"))
+                image_media_workflow = select_workflow(
+                    image_workflows,
+                    key="story_mixed_image_workflow_select",
+                    saved_workflow=saved_image_workflow,
+                )
+                video_media_workflow = select_workflow(
+                    video_workflows,
+                    key="story_mixed_video_workflow_select",
+                    saved_workflow=saved_video_workflow,
+                    preferred_workflow=preferred_i2v_workflow,
+                )
+                media_workflow = image_media_workflow
+
+            mixed_video_count = 0
+            if selected_template_type == "mixed":
+                mixed_video_count = st.slider(
+                    tr("story_lesson.mixed_video_count"),
+                    min_value=1,
+                    max_value=3,
+                    value=2,
+                    step=1,
+                    help=tr("story_lesson.mixed_video_count_help"),
+                    key="story_mixed_video_count",
+                )
 
             with st.expander(tr("story_lesson.prompt_prefix.advanced"), expanded=False):
                 prompt_prefix = st.text_area(
@@ -585,7 +677,7 @@ class StoryLessonPipelineUI(PipelineUI):
                 )
 
             media_scale_mode = "cover"
-            if selected_template_type == "video":
+            if selected_template_type in {"video", "mixed"}:
                 scale_options = {
                     "cover": tr("story_lesson.scale.cover"),
                     "contain": tr("story_lesson.scale.contain"),
@@ -603,7 +695,12 @@ class StoryLessonPipelineUI(PipelineUI):
         return {
             "story_visual_style": story_visual_style,
             "frame_template": frame_template,
+            "video_frame_template": "1080x1920/video_live_fullscreen.html" if selected_template_type == "mixed" else None,
+            "media_mode": selected_template_type,
             "media_workflow": media_workflow,
+            "image_media_workflow": image_media_workflow,
+            "video_media_workflow": video_media_workflow,
+            "mixed_video_count": mixed_video_count,
             "prompt_prefix": prompt_prefix if prompt_prefix else "",
             "media_width": media_width,
             "media_height": media_height,
@@ -667,8 +764,16 @@ class StoryLessonPipelineUI(PipelineUI):
                         include_life_example=video_params.get("include_life_example"),
                         extra_requirements=video_params.get("extra_requirements"),
                         story_visual_style=video_params.get("story_visual_style"),
+                        media_mode=video_params.get("media_mode", "image"),
                         media_workflow=video_params.get("media_workflow"),
+                        image_media_workflow=video_params.get("image_media_workflow"),
+                        video_media_workflow=video_params.get("video_media_workflow"),
+                        mixed_video_frame_indices=_select_mixed_video_frame_indices(
+                            video_params.get("n_scenes", 6),
+                            video_params.get("mixed_video_count", 0),
+                        ),
                         frame_template=video_params.get("frame_template"),
+                        video_frame_template=video_params.get("video_frame_template"),
                         prompt_prefix=video_params.get("prompt_prefix"),
                         bgm_path=video_params.get("bgm_path"),
                         bgm_volume=video_params.get("bgm_volume", 0.2),

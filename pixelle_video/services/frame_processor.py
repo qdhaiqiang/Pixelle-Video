@@ -203,69 +203,108 @@ class FrameProcessor:
     ):
         """Step 2: Generate media (image or video) using ComfyKit"""
         logger.debug(f"  2/4: Generating media for frame {frame.index}...")
-        
-        # Determine media type based on workflow
-        # video_ prefix in workflow name indicates video generation
-        workflow_name = config.media_workflow or ""
-        is_video_workflow = "video_" in workflow_name.lower()
-        media_type = "video" if is_video_workflow else "image"
-        
-        logger.debug(f"  → Media type: {media_type} (workflow: {workflow_name})")
-        
-        # Build media generation parameters
+
+        should_generate_video = (
+            config.media_mode == "video"
+            or (
+                config.media_mode == "mixed"
+                and frame.index in set(config.mixed_video_frame_indices or [])
+            )
+        )
+        image_workflow = config.image_media_workflow or (
+            config.media_workflow if not self._is_video_workflow(config.media_workflow) else None
+        )
+        video_workflow = config.video_media_workflow or (
+            config.media_workflow if self._is_video_workflow(config.media_workflow) else None
+        )
+
+        if should_generate_video and self._is_i2v_workflow(video_workflow):
+            if not frame.image_path:
+                frame.image_path = await self._generate_image_media(frame, config, image_workflow)
+            await self._generate_video_media(frame, config, video_workflow, image_input=frame.image_path)
+            return
+
+        if should_generate_video:
+            await self._generate_video_media(frame, config, video_workflow)
+            return
+
+        frame.image_path = await self._generate_image_media(frame, config, image_workflow)
+        frame.media_type = "image"
+
+    def _is_video_workflow(self, workflow_name: Optional[str]) -> bool:
+        workflow = (workflow_name or "").lower()
+        return "video_" in workflow or "i2v_" in workflow
+
+    def _is_i2v_workflow(self, workflow_name: Optional[str]) -> bool:
+        return "i2v_" in (workflow_name or "").lower()
+
+    async def _generate_image_media(
+        self,
+        frame: StoryboardFrame,
+        config: StoryboardConfig,
+        workflow: Optional[str],
+    ) -> str:
+        logger.debug(f"  → Media type: image (workflow: {workflow})")
+        media_result = await self.core.media(
+            prompt=frame.image_prompt,
+            workflow=workflow,
+            media_type="image",
+            width=config.media_width,
+            height=config.media_height,
+            index=frame.index + 1,
+        )
+        if not media_result.is_image:
+            raise ValueError(f"Expected image media, got {media_result.media_type}")
+
+        local_path = await self._download_media(
+            media_result.url,
+            frame.index,
+            config.task_id,
+            media_type="image",
+        )
+        logger.debug(f"  ✓ Image generated: {local_path}")
+        return local_path
+
+    async def _generate_video_media(
+        self,
+        frame: StoryboardFrame,
+        config: StoryboardConfig,
+        workflow: Optional[str],
+        image_input: Optional[str] = None,
+    ):
+        logger.debug(f"  → Media type: video (workflow: {workflow}, i2v={bool(image_input)})")
         media_params = {
             "prompt": frame.image_prompt,
-            "workflow": config.media_workflow,  # Pass workflow from config (None = use default)
-            "media_type": media_type,
+            "workflow": workflow,
+            "media_type": "video",
             "width": config.media_width,
             "height": config.media_height,
-            "index": frame.index + 1,  # 1-based index for workflow
+            "index": frame.index + 1,
         }
-        
-        # For video workflows: pass audio duration as target video duration
-        # This ensures video length matches audio length from the source
-        if is_video_workflow and frame.duration:
+        if image_input:
+            media_params["image"] = image_input
+        if frame.duration:
             media_params["duration"] = frame.duration
             logger.info(f"  → Generating video with target duration: {frame.duration:.2f}s (from TTS audio)")
-        
-        # Call Media generation
+
         media_result = await self.core.media(**media_params)
-        
-        # Store media type
-        frame.media_type = media_result.media_type
-        
-        if media_result.is_image:
-            # Download image to local (pass task_id)
-            local_path = await self._download_media(
-                media_result.url,
-                frame.index,
-                config.task_id,
-                media_type="image"
-            )
-            frame.image_path = local_path
-            logger.debug(f"  ✓ Image generated: {local_path}")
-        
-        elif media_result.is_video:
-            # Download video to local (pass task_id)
-            local_path = await self._download_media(
-                media_result.url,
-                frame.index,
-                config.task_id,
-                media_type="video"
-            )
-            frame.video_path = local_path
-            
-            # Update duration from video if available
-            if media_result.duration:
-                frame.duration = media_result.duration
-                logger.debug(f"  ✓ Video generated: {local_path} (duration: {frame.duration:.2f}s)")
-            else:
-                # Get video duration from file
-                frame.duration = await self._get_video_duration(local_path)
-                logger.debug(f"  ✓ Video generated: {local_path} (duration: {frame.duration:.2f}s)")
-        
+        if not media_result.is_video:
+            raise ValueError(f"Expected video media, got {media_result.media_type}")
+
+        local_path = await self._download_media(
+            media_result.url,
+            frame.index,
+            config.task_id,
+            media_type="video",
+        )
+        frame.video_path = local_path
+        frame.media_type = "video"
+
+        if media_result.duration:
+            frame.duration = media_result.duration
         else:
-            raise ValueError(f"Unknown media type: {media_result.media_type}")
+            frame.duration = await self._get_video_duration(local_path)
+        logger.debug(f"  ✓ Video generated: {local_path} (duration: {frame.duration:.2f}s)")
     
     async def _step_compose_frame(
         self,
@@ -301,7 +340,12 @@ class FrameProcessor:
         from pixelle_video.utils.template_util import resolve_template_path
         
         # Resolve template path (handles various input formats)
-        template_path = resolve_template_path(config.frame_template)
+        frame_template = (
+            config.video_frame_template
+            if frame.media_type == "video" and config.video_frame_template
+            else config.frame_template
+        )
+        template_path = resolve_template_path(frame_template)
         
         # Get content metadata from storyboard
         content_metadata = storyboard.content_metadata if storyboard else None

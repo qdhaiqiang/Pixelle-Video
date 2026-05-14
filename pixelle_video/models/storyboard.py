@@ -48,10 +48,15 @@ class StoryboardConfig:
     
     # Media workflow
     media_workflow: Optional[str] = None       # Media workflow filename (image or video, None = use default)
+    media_mode: str = "image"                 # image, video, or mixed
+    image_media_workflow: Optional[str] = None # Workflow used for image generation in mixed/i2v mode
+    video_media_workflow: Optional[str] = None # Workflow used for video generation in mixed/video mode
+    mixed_video_frame_indices: List[int] = field(default_factory=list)  # 0-based frames rendered as video in mixed mode
     media_scale_mode: str = "contain"         # For video media: contain, cover, or stretch
     
     # Frame template (includes size information in path)
     frame_template: str = "1080x1920/default.html"  # Template path with size (e.g., "1080x1920/default.html")
+    video_frame_template: Optional[str] = None       # Optional overlay template for video frames in mixed mode
     template_params: Optional[Dict[str, Any]] = None  # Custom template parameters (e.g., {"accent_color": "#ff0000"})
 
 

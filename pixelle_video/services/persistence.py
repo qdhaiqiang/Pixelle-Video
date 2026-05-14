@@ -392,8 +392,13 @@ class PersistenceService:
             "media_width": config.media_width,
             "media_height": config.media_height,
             "media_workflow": config.media_workflow,
+            "media_mode": config.media_mode,
+            "image_media_workflow": config.image_media_workflow,
+            "video_media_workflow": config.video_media_workflow,
+            "mixed_video_frame_indices": config.mixed_video_frame_indices,
             "media_scale_mode": config.media_scale_mode,
             "frame_template": config.frame_template,
+            "video_frame_template": config.video_frame_template,
             "template_params": config.template_params,
         }
     
@@ -415,8 +420,13 @@ class PersistenceService:
             media_width=data.get("media_width", data.get("image_width", 1024)),  # Backward compatibility
             media_height=data.get("media_height", data.get("image_height", 1024)),  # Backward compatibility
             media_workflow=data.get("media_workflow", data.get("image_workflow")),  # Backward compatibility
+            media_mode=data.get("media_mode", "image"),
+            image_media_workflow=data.get("image_media_workflow"),
+            video_media_workflow=data.get("video_media_workflow"),
+            mixed_video_frame_indices=data.get("mixed_video_frame_indices", []),
             media_scale_mode=data.get("media_scale_mode", "contain"),
             frame_template=data.get("frame_template", "1080x1920/default.html"),
+            video_frame_template=data.get("video_frame_template"),
             template_params=data.get("template_params"),
         )
     
